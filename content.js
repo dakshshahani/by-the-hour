@@ -719,6 +719,45 @@
     return null;
   }
 
+  function getInnerResultsContainer() {
+    const header = document.querySelector('main#workspace header');
+    if (!header) return null;
+
+    const firstChild = header.children[0];
+    if (!firstChild) return null;
+
+    const text = normalizeNodeText(firstChild);
+    if (!/\bresults?\b/i.test(text) && !/united states/i.test(text)) {
+      return null;
+    }
+
+    return firstChild;
+  }
+
+  function getLocationButtonInHeader() {
+    const innerContainer = getInnerResultsContainer();
+    if (!innerContainer) return null;
+
+    const buttons = innerContainer.querySelectorAll('[role="button"], button, a');
+    for (const btn of buttons) {
+      const text = normalizeNodeText(btn);
+      if (/united states/i.test(text)) {
+        return btn;
+      }
+    }
+
+    for (const btn of buttons) {
+      const text = normalizeNodeText(btn);
+      if (text && text.length > 2 && text.length < 40 && !/\d/.test(text)) {
+        if (!NON_LOCATION_BUTTON_TEXT_PATTERN.test(text)) {
+          return btn;
+        }
+      }
+    }
+
+    return null;
+  }
+
   function getLocationNodeInResultsHeader(header) {
     if (!header) {
       return null;
@@ -846,6 +885,27 @@
   }
 
   function getLocationMountTarget() {
+    const innerContainer = getInnerResultsContainer();
+    const locationButton = getLocationButtonInHeader();
+
+    if (innerContainer && locationButton?.parentElement) {
+      return {
+        mode: "after",
+        node: locationButton,
+        containerNode: innerContainer,
+        strategy: "results-inner-after-location"
+      };
+    }
+
+    if (innerContainer) {
+      return {
+        mode: "append",
+        node: innerContainer,
+        containerNode: innerContainer,
+        strategy: "results-inner-append"
+      };
+    }
+
     const resultsCountRow = getResultsCountRow();
     if (resultsCountRow) {
       return {
@@ -1104,7 +1164,9 @@
     if (
       currentStrategy === "results-header-after-location" ||
       currentStrategy === "results-header-append" ||
-      currentStrategy === "results-count-row-append"
+      currentStrategy === "results-count-row-append" ||
+      currentStrategy === "results-inner-after-location" ||
+      currentStrategy === "results-inner-append"
     ) {
       forceResultsHeaderInlineLayout(mountTarget);
     }
@@ -1138,6 +1200,13 @@
 
     if (uiMountStrategy === "results-count-row-append") {
       container.style.marginLeft = "12px";
+      container.style.marginTop = "0";
+      container.style.width = "";
+      container.style.display = "inline-flex";
+      container.style.verticalAlign = "middle";
+    } else
+    if (uiMountStrategy === "results-inner-after-location" || uiMountStrategy === "results-inner-append") {
+      container.style.marginLeft = "8px";
       container.style.marginTop = "0";
       container.style.width = "";
       container.style.display = "inline-flex";
