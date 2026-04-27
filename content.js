@@ -3,6 +3,15 @@
   const AGE_PATTERN = /(\d+)\s*(minute|min|mins|hour|hours|hr|hrs|day|days)\s*ago/i;
   const FILTER_ATTR = "data-bythehour-hidden";
   const LOG_PREFIX = "[ByTheHour]";
+  const CARD_SELECTORS = [
+    "li.scaffold-layout__list-item",
+    "li.jobs-search-results__list-item",
+    "div.job-card-container",
+    "li[data-occludable-job-id]",
+    "article",
+    "li",
+    "[role='listitem']"
+  ];
 
   let observer = null;
   let scheduled = false;
@@ -59,15 +68,22 @@
   }
 
   function findLikelyCard(node) {
+    for (const selector of CARD_SELECTORS) {
+      const hit = node.closest(selector);
+      if (hit) {
+        return hit;
+      }
+    }
+
     let current = node;
 
     while (current && current !== document.body) {
       const parent = current.parentElement;
       const text = (current.innerText || "").trim();
       const parentChildren = parent ? parent.children.length : 0;
-      const hasLink = !!current.querySelector("a");
+      const childCount = current.children ? current.children.length : 0;
 
-      if (text.length > 80 && text.length < 2500 && parentChildren >= 5 && hasLink) {
+      if (text.length > 40 && text.length < 4000 && parentChildren >= 2 && childCount >= 1) {
         return current;
       }
 
@@ -80,6 +96,14 @@
   function getTimestampNodes() {
     const nodes = Array.from(document.querySelectorAll("span, p, div, small, time"));
     return nodes.filter((node) => isAgeText(node.textContent || ""));
+  }
+
+  function unhidePreviouslyFilteredCards() {
+    const previouslyHidden = document.querySelectorAll(`[${FILTER_ATTR}='true']`);
+    previouslyHidden.forEach((card) => {
+      card.style.display = "";
+      card.removeAttribute(FILTER_ATTR);
+    });
   }
 
   function applyCardVisibility(card, hide) {
@@ -96,6 +120,8 @@
   }
 
   function filterCards(maxHours) {
+    unhidePreviouslyFilteredCards();
+
     const timestampNodes = getTimestampNodes();
     const seen = new Set();
     let matchedTimestamps = 0;
@@ -108,7 +134,7 @@
       url: window.location.href
     });
 
-    timestampNodes.forEach((node) => {
+    timestampNodes.forEach((node, index) => {
       const text = node.textContent || "";
       const hours = parseAgeToHours(text);
       if (hours === null) {
@@ -119,7 +145,7 @@
 
       const card = findLikelyCard(node);
       if (!card || seen.has(card)) {
-        if (!card) {
+        if (!card && index < 8) {
           log("No card container found for timestamp", { text: text.trim(), hours });
         }
         return;
@@ -184,7 +210,6 @@
     }
 
     observer = new MutationObserver(() => {
-      log("DOM mutation detected");
       scheduleRunFilter();
     });
 
