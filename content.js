@@ -5,6 +5,8 @@
   const HIDDEN_CLASS = "bythehour-hidden";
   const LOG_PREFIX = "[ByTheHour]";
   const MIN_RUN_INTERVAL_MS = 1000;
+  const UI_HOST_ID = "bythehour-ui-host";
+  const UI_PANEL_WIDTH_PX = 320;
   const RESULT_ROOT_SELECTORS = [
     ".jobs-search-results-list",
     "ul.scaffold-layout__list-container",
@@ -29,6 +31,7 @@
   let scheduled = false;
   let isApplyingFilter = false;
   let lastRunAt = 0;
+  let ui = null;
 
   function ensureHiddenStyle() {
     if (document.getElementById("bythehour-style")) {
@@ -340,6 +343,317 @@
     });
   }
 
+  function saveMaxHours(value) {
+    return new Promise((resolve) => {
+      if (!chrome?.runtime?.id) {
+        resolve({ ok: false, error: "Extension context unavailable." });
+        return;
+      }
+
+      chrome.storage.sync.set({ maxHours: value }, () => {
+        if (chrome.runtime.lastError) {
+          resolve({ ok: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+
+        resolve({ ok: true });
+      });
+    });
+  }
+
+  function setUiStatus(message, tone) {
+    if (!ui?.status) {
+      return;
+    }
+
+    ui.status.textContent = message;
+    ui.status.dataset.tone = tone || "neutral";
+  }
+
+  function setPanelOpen(open) {
+    if (!ui) {
+      return;
+    }
+
+    ui.panel.hidden = !open;
+    ui.launcher.setAttribute("aria-expanded", String(open));
+    ui.launcher.textContent = open ? "Close ByTheHour" : "ByTheHour";
+
+    if (open) {
+      ui.input.focus();
+      ui.input.select();
+    }
+  }
+
+  function parseHoursInput(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      return null;
+    }
+
+    return Math.floor(parsed);
+  }
+
+  async function handleSaveFromUi() {
+    if (!ui) {
+      return;
+    }
+
+    const parsed = parseHoursInput(ui.input.value);
+    if (parsed === null) {
+      setUiStatus("Enter a valid number (1 or higher).", "error");
+      return;
+    }
+
+    ui.saveButton.disabled = true;
+    setUiStatus("Saving...", "neutral");
+
+    const result = await saveMaxHours(parsed);
+    ui.saveButton.disabled = false;
+
+    if (!result.ok) {
+      setUiStatus(`Save failed: ${result.error || "Try reloading extension."}`, "error");
+      return;
+    }
+
+    setUiStatus(`Saved. Showing jobs from last ${parsed} hour(s).`, "success");
+    runFilter();
+  }
+
+  async function initInPageControls() {
+    if (ui?.host?.isConnected) {
+      return;
+    }
+
+    let host = document.getElementById(UI_HOST_ID);
+    if (!host) {
+      host = document.createElement("div");
+      host.id = UI_HOST_ID;
+      document.documentElement.appendChild(host);
+    }
+
+    const root = host.shadowRoot || host.attachShadow({ mode: "open" });
+    root.innerHTML = `
+      <style>
+        * {
+          box-sizing: border-box;
+          font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        }
+
+        .bth-shell {
+          position: fixed;
+          right: 16px;
+          bottom: 16px;
+          z-index: 2147483646;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 10px;
+          width: min(${UI_PANEL_WIDTH_PX}px, calc(100vw - 20px));
+        }
+
+        .bth-launcher,
+        .bth-button,
+        .bth-close {
+          border: 0;
+          cursor: pointer;
+        }
+
+        .bth-launcher {
+          align-self: flex-end;
+          padding: 10px 14px;
+          border-radius: 999px;
+          background: linear-gradient(135deg, #aa451f 0%, #d46b2f 100%);
+          color: #ffffff;
+          font-weight: 700;
+          letter-spacing: 0.01em;
+          box-shadow: 0 12px 24px rgba(31, 41, 51, 0.24);
+          transition: transform 140ms ease, box-shadow 140ms ease;
+        }
+
+        .bth-launcher:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 14px 28px rgba(31, 41, 51, 0.28);
+        }
+
+        .bth-panel {
+          width: 100%;
+          background: linear-gradient(155deg, #fff7eb 0%, #f7ead8 100%);
+          border: 1px solid #e2cfb2;
+          border-radius: 16px;
+          box-shadow: 0 18px 42px rgba(31, 41, 51, 0.18);
+          padding: 14px;
+          color: #1f2933;
+        }
+
+        .bth-panel[hidden] {
+          display: none;
+        }
+
+        .bth-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 10px;
+        }
+
+        .bth-title {
+          margin: 0;
+          font-size: 16px;
+          line-height: 1.2;
+          letter-spacing: 0.01em;
+        }
+
+        .bth-subtitle {
+          margin: 6px 0 12px;
+          color: #5d6977;
+          font-size: 13px;
+        }
+
+        .bth-close {
+          width: 26px;
+          height: 26px;
+          border-radius: 999px;
+          background: rgba(31, 41, 51, 0.08);
+          color: #24313d;
+          font-size: 16px;
+          line-height: 1;
+        }
+
+        .bth-row {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .bth-input {
+          width: 100%;
+          padding: 10px 11px;
+          border-radius: 10px;
+          border: 1px solid #ccb291;
+          background: #fffdf8;
+          color: #1f2933;
+          font-size: 15px;
+        }
+
+        .bth-unit {
+          color: #536172;
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .bth-actions {
+          margin-top: 10px;
+          display: flex;
+          justify-content: flex-end;
+        }
+
+        .bth-button {
+          border-radius: 10px;
+          padding: 9px 12px;
+          background: #b6522f;
+          color: #ffffff;
+          font-weight: 700;
+          letter-spacing: 0.01em;
+        }
+
+        .bth-button:disabled {
+          opacity: 0.75;
+          cursor: default;
+        }
+
+        .bth-status {
+          min-height: 1em;
+          margin: 10px 0 0;
+          font-size: 12px;
+          color: #5f6c7b;
+        }
+
+        .bth-status[data-tone='success'] {
+          color: #0f6a4f;
+        }
+
+        .bth-status[data-tone='error'] {
+          color: #9b2f1f;
+        }
+
+        @media (max-width: 640px) {
+          .bth-shell {
+            right: 10px;
+            bottom: 10px;
+            width: min(${UI_PANEL_WIDTH_PX}px, calc(100vw - 12px));
+          }
+        }
+      </style>
+      <div class="bth-shell">
+        <section class="bth-panel" id="bth-panel" hidden>
+          <div class="bth-top">
+            <div>
+              <h2 class="bth-title">ByTheHour</h2>
+              <p class="bth-subtitle">Only show jobs posted recently.</p>
+            </div>
+            <button class="bth-close" id="bth-close" type="button" aria-label="Close panel">x</button>
+          </div>
+
+          <div class="bth-row">
+            <input id="bth-hours" class="bth-input" type="number" min="1" step="1" value="12" aria-label="Maximum age in hours">
+            <span class="bth-unit">hours</span>
+          </div>
+
+          <div class="bth-actions">
+            <button id="bth-save" class="bth-button" type="button">Apply filter</button>
+          </div>
+
+          <p id="bth-status" class="bth-status" role="status" aria-live="polite"></p>
+        </section>
+
+        <button id="bth-launcher" class="bth-launcher" type="button" aria-expanded="false" aria-controls="bth-panel">ByTheHour</button>
+      </div>
+    `;
+
+    ui = {
+      host,
+      root,
+      panel: root.getElementById("bth-panel"),
+      launcher: root.getElementById("bth-launcher"),
+      closeButton: root.getElementById("bth-close"),
+      input: root.getElementById("bth-hours"),
+      saveButton: root.getElementById("bth-save"),
+      status: root.getElementById("bth-status")
+    };
+
+    ui.launcher.addEventListener("click", () => {
+      const isOpen = !ui.panel.hidden;
+      setPanelOpen(!isOpen);
+    });
+
+    ui.closeButton.addEventListener("click", () => {
+      setPanelOpen(false);
+    });
+
+    ui.saveButton.addEventListener("click", () => {
+      handleSaveFromUi();
+    });
+
+    ui.input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        handleSaveFromUi();
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setPanelOpen(false);
+      }
+    });
+
+    const currentMaxHours = await loadMaxHours();
+    ui.input.value = String(Math.max(1, Math.floor(currentMaxHours)));
+    setUiStatus(`Current filter: ${ui.input.value} hour(s).`, "neutral");
+  }
+
   async function runFilter() {
     if (isApplyingFilter) {
       return;
@@ -400,13 +714,20 @@
 
     if (changes.maxHours) {
       log("maxHours changed", { oldValue: changes.maxHours.oldValue, newValue: changes.maxHours.newValue });
+      const parsed = Number(changes.maxHours.newValue);
+      if (ui?.input && Number.isFinite(parsed) && parsed > 0) {
+        ui.input.value = String(Math.floor(parsed));
+        setUiStatus(`Current filter: ${ui.input.value} hour(s).`, "neutral");
+      }
+
       runFilter();
     }
   });
 
-  function init() {
+  async function init() {
     log("Content script initialized", { readyState: document.readyState, url: window.location.href });
     ensureHiddenStyle();
+    await initInPageControls();
     startObserver();
     runFilter();
   }
