@@ -496,7 +496,7 @@
         font-size: 13px;
         font-weight: 700;
         cursor: pointer;
-        transition: background 0.3s ease;
+        transition: all 0.4s ease;
       }
 
       #${UI_CONTAINER_ID} .bth-inline-save.bth-saved {
@@ -1341,7 +1341,7 @@
         ui.saveButton.textContent = "Apply";
         ui.saveButton.disabled = false;
       }
-    }, 1500);
+    }, 800);
 
     runFilter();
   }
