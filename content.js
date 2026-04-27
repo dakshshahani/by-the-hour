@@ -3,6 +3,12 @@
   const AGE_PATTERN = /(\d+)\s*(minute|min|mins|hour|hours|hr|hrs|day|days)\s*ago/i;
   const FILTER_ATTR = "data-bythehour-hidden";
   const LOG_PREFIX = "[ByTheHour]";
+  const MIN_RUN_INTERVAL_MS = 1000;
+  const PRIMARY_CARD_SELECTORS = [
+    "li.scaffold-layout__list-item",
+    "li.jobs-search-results__list-item",
+    "li[data-occludable-job-id]"
+  ];
   const CARD_SELECTORS = [
     "li.scaffold-layout__list-item",
     "li.jobs-search-results__list-item",
@@ -16,6 +22,7 @@
   let observer = null;
   let scheduled = false;
   let isApplyingFilter = false;
+  let lastRunAt = 0;
 
   function log(message, extra) {
     if (typeof extra === "undefined") {
@@ -109,69 +116,126 @@
 
   function applyCardVisibility(card, hide) {
     if (hide) {
-      card.style.display = "none";
+      card.style.setProperty("display", "none", "important");
       card.setAttribute(FILTER_ATTR, "true");
       return;
     }
 
     if (card.getAttribute(FILTER_ATTR) === "true") {
-      card.style.display = "";
+      card.style.removeProperty("display");
       card.removeAttribute(FILTER_ATTR);
     }
+  }
+
+  function getPrimaryCards() {
+    for (const selector of PRIMARY_CARD_SELECTORS) {
+      const cards = Array.from(document.querySelectorAll(selector));
+      if (cards.length > 0) {
+        return cards;
+      }
+    }
+
+    return [];
+  }
+
+  function parseAgeFromCard(card) {
+    const nodes = Array.from(card.querySelectorAll("span, p, div, small, time"));
+    let bestHours = null;
+
+    for (const node of nodes) {
+      const text = (node.textContent || "").trim();
+      if (!/\bago\b/i.test(text)) {
+        continue;
+      }
+
+      const hours = parseAgeToHours(text);
+      if (hours === null) {
+        continue;
+      }
+
+      if (bestHours === null || hours < bestHours) {
+        bestHours = hours;
+      }
+    }
+
+    return bestHours;
   }
 
   function filterCards(maxHours) {
     isApplyingFilter = true;
 
-    unhidePreviouslyFilteredCards();
+    try {
+      unhidePreviouslyFilteredCards();
 
-    const timestampNodes = getTimestampNodes();
-    const seen = new Set();
-    let matchedTimestamps = 0;
-    let matchedCards = 0;
-    let hiddenCards = 0;
+      let matchedTimestamps = 0;
+      let matchedCards = 0;
+      let hiddenCards = 0;
 
-    log("Starting filter run", {
-      maxHours,
-      timestampCandidates: timestampNodes.length,
-      url: window.location.href
-    });
+      const primaryCards = getPrimaryCards();
 
-    timestampNodes.forEach((node, index) => {
-      const text = node.textContent || "";
-      const hours = parseAgeToHours(text);
-      if (hours === null) {
-        return;
+      log("Starting filter run", {
+        maxHours,
+        primaryCards: primaryCards.length,
+        url: window.location.href
+      });
+
+      if (primaryCards.length > 0) {
+        primaryCards.forEach((card) => {
+          const hours = parseAgeFromCard(card);
+          if (hours === null) {
+            return;
+          }
+
+          matchedTimestamps += 1;
+          matchedCards += 1;
+
+          const hide = hours > maxHours;
+          applyCardVisibility(card, hide);
+          if (hide) {
+            hiddenCards += 1;
+          }
+        });
+      } else {
+        const timestampNodes = getTimestampNodes();
+        const seen = new Set();
+
+        timestampNodes.forEach((node, index) => {
+          const text = node.textContent || "";
+          const hours = parseAgeToHours(text);
+          if (hours === null) {
+            return;
+          }
+
+          matchedTimestamps += 1;
+
+          const card = findLikelyCard(node);
+          if (!card || seen.has(card)) {
+            if (!card && index < 8) {
+              log("No card container found for timestamp", { text: text.trim(), hours });
+            }
+            return;
+          }
+
+          seen.add(card);
+          matchedCards += 1;
+
+          const hide = hours > maxHours;
+          applyCardVisibility(card, hide);
+          if (hide) {
+            hiddenCards += 1;
+          }
+        });
       }
 
-      matchedTimestamps += 1;
-
-      const card = findLikelyCard(node);
-      if (!card || seen.has(card)) {
-        if (!card && index < 8) {
-          log("No card container found for timestamp", { text: text.trim(), hours });
-        }
-        return;
-      }
-
-      seen.add(card);
-      matchedCards += 1;
-
-      const hide = hours > maxHours;
-      applyCardVisibility(card, hide);
-      if (hide) {
-        hiddenCards += 1;
-      }
-    });
-
-    log("Filter run complete", {
-      matchedTimestamps,
-      matchedCards,
-      hiddenCards,
-      shownCards: Math.max(matchedCards - hiddenCards, 0)
-    });
-
-    isApplyingFilter = false;
+      log("Filter run complete", {
+        matchedTimestamps,
+        matchedCards,
+        hiddenCards,
+        shownCards: Math.max(matchedCards - hiddenCards, 0)
+      });
+    } finally {
+      isApplyingFilter = false;
+    }
   }
 
   function loadMaxHours() {
@@ -189,10 +253,15 @@
   }
 
   async function runFilter() {
+    if (isApplyingFilter) {
+      return;
+    }
+
     log("runFilter called");
     const maxHours = await loadMaxHours();
     log("Loaded maxHours", { maxHours });
     filterCards(maxHours);
+    lastRunAt = Date.now();
   }
 
   function scheduleRunFilter() {
@@ -201,11 +270,12 @@
     }
 
     scheduled = true;
+    const wait = Math.max(0, MIN_RUN_INTERVAL_MS - (Date.now() - lastRunAt));
     log("Scheduling filter run on next animation frame");
-    window.requestAnimationFrame(() => {
+    window.setTimeout(() => {
       scheduled = false;
       runFilter();
-    });
+    }, wait);
   }
 
   function startObserver() {
