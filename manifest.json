@@ -10,7 +10,6 @@
     "https://www.linkedin.com/jobs/*"
   ],
   "action": {
-    "default_popup": "popup.html",
     "default_title": "ByTheHour"
   },
   "content_scripts": [

@@ -5,8 +5,36 @@
   const HIDDEN_CLASS = "bythehour-hidden";
   const LOG_PREFIX = "[ByTheHour]";
   const MIN_RUN_INTERVAL_MS = 1000;
-  const UI_HOST_ID = "bythehour-ui-host";
-  const UI_PANEL_WIDTH_PX = 320;
+  const UI_RETRY_INTERVAL_MS = 1200;
+  const UI_RETRY_MAX_ATTEMPTS = 20;
+  const UI_STYLE_ID = "bythehour-inline-style";
+  const UI_CONTAINER_ID = "bythehour-inline-control";
+  const LOCATION_WRAPPER_SELECTORS = [
+    ".jobs-search-box__location-input",
+    ".jobs-search-box__location",
+    "[class*='jobs-search-box__location']",
+    "[data-job-search-box-input='location']"
+  ];
+  const SEARCH_BOX_FALLBACK_SELECTORS = [
+    ".jobs-search-box__inner",
+    ".jobs-search-box",
+    ".jobs-search-two-pane__wrapper",
+    ".jobs-search-results-list__header",
+    "form[role='search']",
+    "header [class*='search']",
+    "main",
+    "body"
+  ];
+  const LOCATION_INPUT_SELECTORS = [
+    "input[aria-label*='Search by location']",
+    "input[aria-label*='City, state, or zip code']",
+    "input[aria-label*='City']",
+    "input[aria-label*='city']",
+    "input[placeholder*='City']",
+    "input[placeholder*='location']",
+    "input[id*='jobs-search-box-location-id']",
+    "input[aria-label*='location']"
+  ];
   const RESULT_ROOT_SELECTORS = [
     ".jobs-search-results-list",
     "ul.scaffold-layout__list-container",
@@ -32,6 +60,10 @@
   let isApplyingFilter = false;
   let lastRunAt = 0;
   let ui = null;
+  let uiMountMode = null;
+  let hasLoadedUiValue = false;
+  let uiRetryTimer = null;
+  let uiRetryAttempts = 0;
 
   function ensureHiddenStyle() {
     if (document.getElementById("bythehour-style")) {
@@ -42,6 +74,15 @@
     style.id = "bythehour-style";
     style.textContent = `.${HIDDEN_CLASS} { display: none !important; }`;
     document.documentElement.appendChild(style);
+  }
+
+  function ensureUiInitDebugLog() {
+    if (window.__BYTHEHOUR_UI_LOGGED__) {
+      return;
+    }
+
+    window.__BYTHEHOUR_UI_LOGGED__ = true;
+    log("Inline UI integration enabled");
   }
 
   function log(message, extra) {
@@ -370,18 +411,293 @@
     ui.status.dataset.tone = tone || "neutral";
   }
 
-  function setPanelOpen(open) {
-    if (!ui) {
+  function ensureInlineUiStyle() {
+    if (document.getElementById(UI_STYLE_ID)) {
       return;
     }
 
-    ui.panel.hidden = !open;
-    ui.launcher.setAttribute("aria-expanded", String(open));
-    ui.launcher.textContent = open ? "Close ByTheHour" : "ByTheHour";
+    const style = document.createElement("style");
+    style.id = UI_STYLE_ID;
+    style.textContent = `
+      #${UI_CONTAINER_ID} {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: 10px;
+        padding: 6px 10px;
+        border-radius: 10px;
+        border: 1px solid #d4dbe3;
+        background: linear-gradient(135deg, #ffffff 0%, #f6f8fa 100%);
+        max-width: 100%;
+      }
 
-    if (open) {
-      ui.input.focus();
-      ui.input.select();
+      #${UI_CONTAINER_ID} .bth-inline-label {
+        font-size: 12px;
+        color: #4b5b6b;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-input {
+        width: 64px;
+        min-width: 56px;
+        height: 32px;
+        border-radius: 8px;
+        border: 1px solid #c4ced8;
+        padding: 0 8px;
+        font-size: 14px;
+        color: #1d2226;
+        background: #ffffff;
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-unit {
+        font-size: 12px;
+        color: #5f6f81;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-save {
+        height: 32px;
+        border: 0;
+        border-radius: 16px;
+        padding: 0 12px;
+        background: #0a66c2;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-save:disabled {
+        opacity: 0.8;
+        cursor: default;
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-status {
+        font-size: 12px;
+        color: #5f6f81;
+        max-width: 220px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-status[data-tone='success'] {
+        color: #0f6a4f;
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-status[data-tone='error'] {
+        color: #9b2f1f;
+      }
+
+      @media (max-width: 980px) {
+        #${UI_CONTAINER_ID} {
+          margin-left: 0;
+          margin-top: 8px;
+          flex-wrap: wrap;
+        }
+
+        #${UI_CONTAINER_ID} .bth-inline-status {
+          max-width: 100%;
+          width: 100%;
+        }
+      }
+    `;
+
+    document.documentElement.appendChild(style);
+  }
+
+  function findLocationInput() {
+    for (const selector of LOCATION_INPUT_SELECTORS) {
+      const input = document.querySelector(selector);
+      if (input) {
+        return input;
+      }
+    }
+
+    return null;
+  }
+
+  function findLocationWrapper() {
+    for (const selector of LOCATION_WRAPPER_SELECTORS) {
+      const node = document.querySelector(selector);
+      if (node) {
+        return node;
+      }
+    }
+
+    return null;
+  }
+
+  function getLocationMountTarget() {
+    const locationWrapper = findLocationWrapper();
+    if (locationWrapper?.parentElement) {
+      return { mode: "after", node: locationWrapper };
+    }
+
+    const locationInput = findLocationInput();
+    if (locationInput) {
+      const closestWrapper =
+        locationInput.closest(".jobs-search-box__location-input") ||
+        locationInput.closest(".jobs-search-box__inner") ||
+        locationInput.closest(".jobs-search-box__input") ||
+        locationInput.closest("[class*='jobs-search-box']") ||
+        locationInput.parentElement;
+
+      if (closestWrapper?.parentElement) {
+        return { mode: "after", node: closestWrapper };
+      }
+    }
+
+    for (const selector of SEARCH_BOX_FALLBACK_SELECTORS) {
+      const fallback = document.querySelector(selector);
+      if (fallback) {
+        if (selector === "main" || selector === "body") {
+          return { mode: "prepend", node: fallback };
+        }
+
+        return { mode: "append", node: fallback };
+      }
+    }
+
+    return null;
+  }
+
+  function attachInlineControl(control, target) {
+    if (!target || !target.node) {
+      return { attached: false, mode: null };
+    }
+
+    if (target.mode === "after") {
+      const parent = target.node.parentElement;
+      if (!parent) {
+        return { attached: false, mode: null };
+      }
+
+      if (control.parentElement !== parent || control.previousElementSibling !== target.node) {
+        parent.insertBefore(control, target.node.nextSibling);
+      }
+
+      return { attached: true, mode: "after" };
+    }
+
+    if (target.mode === "append") {
+      if (control.parentElement !== target.node) {
+        target.node.appendChild(control);
+      }
+
+      return { attached: true, mode: "append" };
+    }
+
+    if (target.mode === "prepend") {
+      if (control.parentElement !== target.node || control !== target.node.firstElementChild) {
+        target.node.insertBefore(control, target.node.firstChild);
+      }
+
+      return { attached: true, mode: "prepend" };
+    }
+
+    return { attached: false, mode: null };
+  }
+
+  function stopUiRetryLoop() {
+    if (uiRetryTimer !== null) {
+      window.clearTimeout(uiRetryTimer);
+      uiRetryTimer = null;
+    }
+  }
+
+  function scheduleUiRetryLoop() {
+    const hasConnectedContainer = !!document.getElementById(UI_CONTAINER_ID);
+    if (uiRetryTimer !== null || hasConnectedContainer || uiRetryAttempts >= UI_RETRY_MAX_ATTEMPTS) {
+      return;
+    }
+
+    uiRetryTimer = window.setTimeout(async () => {
+      uiRetryTimer = null;
+      uiRetryAttempts += 1;
+      ensureInlineControl();
+
+      if (ui?.input && !hasLoadedUiValue) {
+        await syncUiFromStorage();
+      }
+
+      if (!document.getElementById(UI_CONTAINER_ID)) {
+        scheduleUiRetryLoop();
+      }
+    }, UI_RETRY_INTERVAL_MS);
+  }
+
+  function ensureInlineControl() {
+    ensureInlineUiStyle();
+
+    const mountTarget = getLocationMountTarget();
+    if (!mountTarget) {
+      log("Inline UI mount target not found yet");
+      scheduleUiRetryLoop();
+      return;
+    }
+
+    let container = document.getElementById(UI_CONTAINER_ID);
+    if (!container) {
+      container = document.createElement("div");
+      container.id = UI_CONTAINER_ID;
+      hasLoadedUiValue = false;
+      container.innerHTML = `
+        <span class="bth-inline-label">Posted within</span>
+        <input id="bth-hours" class="bth-inline-input" type="number" min="1" step="1" value="12" aria-label="Maximum age in hours">
+        <span class="bth-inline-unit">hours</span>
+        <button id="bth-save" class="bth-inline-save" type="button">Apply</button>
+        <span id="bth-status" class="bth-inline-status" role="status" aria-live="polite"></span>
+      `;
+    }
+
+    const attachResult = attachInlineControl(container, mountTarget);
+    if (!attachResult.attached) {
+      log("Inline UI attach attempt failed", { mode: mountTarget.mode });
+      scheduleUiRetryLoop();
+      return;
+    }
+
+    uiMountMode = attachResult.mode;
+    if (uiMountMode === "append" || uiMountMode === "prepend") {
+      container.style.marginLeft = "0";
+      container.style.marginTop = "8px";
+      container.style.width = "fit-content";
+    } else {
+      container.style.marginLeft = "10px";
+      container.style.marginTop = "0";
+      container.style.width = "";
+    }
+
+    stopUiRetryLoop();
+    uiRetryAttempts = 0;
+
+    ui = {
+      container,
+      input: container.querySelector("#bth-hours"),
+      saveButton: container.querySelector("#bth-save"),
+      status: container.querySelector("#bth-status")
+    };
+
+    if (!container.dataset.bound) {
+      ui.saveButton.addEventListener("click", () => {
+        handleSaveFromUi();
+      });
+
+      ui.input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          handleSaveFromUi();
+        }
+      });
+
+      container.dataset.bound = "true";
+    }
+
+    if (!ui.input.value || Number(ui.input.value) < 1) {
+      ui.input.value = String(DEFAULT_MAX_HOURS);
     }
   }
 
@@ -420,238 +736,25 @@
     runFilter();
   }
 
-  async function initInPageControls() {
-    if (ui?.host?.isConnected) {
+  async function syncUiFromStorage() {
+    if (!ui?.input) {
       return;
     }
-
-    let host = document.getElementById(UI_HOST_ID);
-    if (!host) {
-      host = document.createElement("div");
-      host.id = UI_HOST_ID;
-      document.documentElement.appendChild(host);
-    }
-
-    const root = host.shadowRoot || host.attachShadow({ mode: "open" });
-    root.innerHTML = `
-      <style>
-        * {
-          box-sizing: border-box;
-          font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-        }
-
-        .bth-shell {
-          position: fixed;
-          right: 16px;
-          bottom: 16px;
-          z-index: 2147483646;
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 10px;
-          width: min(${UI_PANEL_WIDTH_PX}px, calc(100vw - 20px));
-        }
-
-        .bth-launcher,
-        .bth-button,
-        .bth-close {
-          border: 0;
-          cursor: pointer;
-        }
-
-        .bth-launcher {
-          align-self: flex-end;
-          padding: 10px 14px;
-          border-radius: 999px;
-          background: linear-gradient(135deg, #aa451f 0%, #d46b2f 100%);
-          color: #ffffff;
-          font-weight: 700;
-          letter-spacing: 0.01em;
-          box-shadow: 0 12px 24px rgba(31, 41, 51, 0.24);
-          transition: transform 140ms ease, box-shadow 140ms ease;
-        }
-
-        .bth-launcher:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 14px 28px rgba(31, 41, 51, 0.28);
-        }
-
-        .bth-panel {
-          width: 100%;
-          background: linear-gradient(155deg, #fff7eb 0%, #f7ead8 100%);
-          border: 1px solid #e2cfb2;
-          border-radius: 16px;
-          box-shadow: 0 18px 42px rgba(31, 41, 51, 0.18);
-          padding: 14px;
-          color: #1f2933;
-        }
-
-        .bth-panel[hidden] {
-          display: none;
-        }
-
-        .bth-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 10px;
-        }
-
-        .bth-title {
-          margin: 0;
-          font-size: 16px;
-          line-height: 1.2;
-          letter-spacing: 0.01em;
-        }
-
-        .bth-subtitle {
-          margin: 6px 0 12px;
-          color: #5d6977;
-          font-size: 13px;
-        }
-
-        .bth-close {
-          width: 26px;
-          height: 26px;
-          border-radius: 999px;
-          background: rgba(31, 41, 51, 0.08);
-          color: #24313d;
-          font-size: 16px;
-          line-height: 1;
-        }
-
-        .bth-row {
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 8px;
-          align-items: center;
-        }
-
-        .bth-input {
-          width: 100%;
-          padding: 10px 11px;
-          border-radius: 10px;
-          border: 1px solid #ccb291;
-          background: #fffdf8;
-          color: #1f2933;
-          font-size: 15px;
-        }
-
-        .bth-unit {
-          color: #536172;
-          font-size: 13px;
-          font-weight: 600;
-        }
-
-        .bth-actions {
-          margin-top: 10px;
-          display: flex;
-          justify-content: flex-end;
-        }
-
-        .bth-button {
-          border-radius: 10px;
-          padding: 9px 12px;
-          background: #b6522f;
-          color: #ffffff;
-          font-weight: 700;
-          letter-spacing: 0.01em;
-        }
-
-        .bth-button:disabled {
-          opacity: 0.75;
-          cursor: default;
-        }
-
-        .bth-status {
-          min-height: 1em;
-          margin: 10px 0 0;
-          font-size: 12px;
-          color: #5f6c7b;
-        }
-
-        .bth-status[data-tone='success'] {
-          color: #0f6a4f;
-        }
-
-        .bth-status[data-tone='error'] {
-          color: #9b2f1f;
-        }
-
-        @media (max-width: 640px) {
-          .bth-shell {
-            right: 10px;
-            bottom: 10px;
-            width: min(${UI_PANEL_WIDTH_PX}px, calc(100vw - 12px));
-          }
-        }
-      </style>
-      <div class="bth-shell">
-        <section class="bth-panel" id="bth-panel" hidden>
-          <div class="bth-top">
-            <div>
-              <h2 class="bth-title">ByTheHour</h2>
-              <p class="bth-subtitle">Only show jobs posted recently.</p>
-            </div>
-            <button class="bth-close" id="bth-close" type="button" aria-label="Close panel">x</button>
-          </div>
-
-          <div class="bth-row">
-            <input id="bth-hours" class="bth-input" type="number" min="1" step="1" value="12" aria-label="Maximum age in hours">
-            <span class="bth-unit">hours</span>
-          </div>
-
-          <div class="bth-actions">
-            <button id="bth-save" class="bth-button" type="button">Apply filter</button>
-          </div>
-
-          <p id="bth-status" class="bth-status" role="status" aria-live="polite"></p>
-        </section>
-
-        <button id="bth-launcher" class="bth-launcher" type="button" aria-expanded="false" aria-controls="bth-panel">ByTheHour</button>
-      </div>
-    `;
-
-    ui = {
-      host,
-      root,
-      panel: root.getElementById("bth-panel"),
-      launcher: root.getElementById("bth-launcher"),
-      closeButton: root.getElementById("bth-close"),
-      input: root.getElementById("bth-hours"),
-      saveButton: root.getElementById("bth-save"),
-      status: root.getElementById("bth-status")
-    };
-
-    ui.launcher.addEventListener("click", () => {
-      const isOpen = !ui.panel.hidden;
-      setPanelOpen(!isOpen);
-    });
-
-    ui.closeButton.addEventListener("click", () => {
-      setPanelOpen(false);
-    });
-
-    ui.saveButton.addEventListener("click", () => {
-      handleSaveFromUi();
-    });
-
-    ui.input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        handleSaveFromUi();
-        return;
-      }
-
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setPanelOpen(false);
-      }
-    });
 
     const currentMaxHours = await loadMaxHours();
     ui.input.value = String(Math.max(1, Math.floor(currentMaxHours)));
     setUiStatus(`Current filter: ${ui.input.value} hour(s).`, "neutral");
+    hasLoadedUiValue = true;
+  }
+
+  async function initInPageControls() {
+    ensureInlineControl();
+    if (!hasLoadedUiValue && ui?.input) {
+      await syncUiFromStorage();
+      return;
+    }
+
+    scheduleUiRetryLoop();
   }
 
   async function runFilter() {
@@ -680,6 +783,7 @@
     log("Scheduling filter run on next animation frame");
     window.setTimeout(() => {
       scheduled = false;
+      ensureInlineControl();
       runFilter();
     }, wait);
   }
@@ -695,6 +799,7 @@
         return;
       }
 
+      ensureInlineControl();
       scheduleRunFilter();
     });
 
@@ -718,6 +823,7 @@
       if (ui?.input && Number.isFinite(parsed) && parsed > 0) {
         ui.input.value = String(Math.floor(parsed));
         setUiStatus(`Current filter: ${ui.input.value} hour(s).`, "neutral");
+        hasLoadedUiValue = true;
       }
 
       runFilter();
@@ -727,8 +833,9 @@
   async function init() {
     log("Content script initialized", { readyState: document.readyState, url: window.location.href });
     ensureHiddenStyle();
-    await initInPageControls();
+    ensureUiInitDebugLog();
     startObserver();
+    await initInPageControls();
     runFilter();
   }
 
