@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "ByTheHour",
+  "description": "Filter LinkedIn job results to show only roles posted within your selected number of hours.",
+  "version": "0.1.0",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.linkedin.com/jobs/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ByTheHour"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/jobs/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

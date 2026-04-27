@@ -1,0 +1,80 @@
+:root {
+  --bg: #f8f4ec;
+  --panel: #fffaf2;
+  --text: #1f2933;
+  --muted: #5f6c7b;
+  --accent: #b6522f;
+  --accent-strong: #8f3d21;
+  --border: #dfd2be;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at top right, #fff4df 0%, var(--bg) 55%);
+  color: var(--text);
+  min-width: 280px;
+}
+
+.app {
+  padding: 14px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.15rem;
+  letter-spacing: 0.01em;
+}
+
+.subtitle {
+  margin: 8px 0 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+label {
+  font-size: 0.84rem;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--accent-strong);
+}
+
+#status {
+  margin: 10px 0 0;
+  min-height: 1em;
+  font-size: 0.82rem;
+  color: var(--muted);
+}

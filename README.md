@@ -1,76 +1,45 @@
 # ByTheHour
 
-ByTheHour is a Chrome extension concept for filtering job search results by posting recency ("last X hours") after the page has rendered.
+ByTheHour is a Chrome extension for LinkedIn Jobs that filters results by posting recency after the page renders.
 
-## Project Scope
+## Scope
 
-- Build a browser extension that works on LinkedIn Jobs results pages.
-- Let users choose a recency threshold in hours (for example, 6 or 12 hours).
-- Parse rendered job timestamp text such as `Posted 14 hours ago`, `14 hours ago`, `45 minutes ago`, or `1 day ago`.
-- Keep only cards that match the threshold and hide older results.
-- Re-apply filtering when job results update dynamically (infinite scroll, lazy loading, or React re-renders).
+- Users set a threshold in hours (for example, 6 or 12).
+- The extension detects timestamp text such as `Posted 14 hours ago`, `14 hours ago`, `45 minutes ago`, and `1 day ago`.
+- It hides cards older than the selected threshold.
+- It reruns automatically as results update dynamically.
 
-## Core Technical Direction
+## Approach
 
-- Use **DOM post-processing** in a content script instead of trying to hook directly into React internals.
-- Avoid relying on obfuscated/generated class names because they are unstable across deploys.
-- Use text-based timestamp detection + ancestor traversal to find and hide the correct job card container.
-- Use a `MutationObserver` to rerun the filter on page updates.
+- Use DOM post-processing in a content script.
+- Do not depend on hashed/minified class names.
+- Use timestamp text matching plus ancestor traversal to find the full job card.
+- Use `MutationObserver` to keep filtering applied while scrolling and updating.
 
-## Why This Approach
+## Project Structure
 
-- React component names/classes in production are often minified or hashed.
-- Stable filtering signal is the human-readable timestamp text in rendered DOM.
-- Visual filtering is simpler and more reliable than intercepting network requests (`fetch/XHR`) for this use case.
+- `manifest.json` - Chrome Extension Manifest V3 setup.
+- `content.js` - parsing, card detection, and filtering logic.
+- `popup.html` - extension popup UI.
+- `popup.css` - popup styling.
+- `popup.js` - threshold save/load via `chrome.storage.sync`.
 
-## Planned Extension Structure
+## Install (Local)
 
-- `manifest.json` - MV3 config, permissions, and content script registration.
-- `content.js` - timestamp parsing, card detection, and hide/show logic.
-- `popup.html` + `popup.js` - UI for setting `maxHours` and storing preference.
-- `chrome.storage.sync` - persist user-selected threshold.
+1. Open `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Click **Load unpacked**.
+4. Select this project folder (`by-the-hour`).
 
-## Functional Requirements
+## Usage
 
-- Parse time formats:
-  - minutes (`X minutes ago`)
-  - hours (`X hours ago`)
-  - days (`X days ago`)
-  - optional `just now`
-- Convert all formats to a normalized hour value.
-- Hide cards with age `> maxHours`; show cards with age `<= maxHours`.
-- Ensure duplicate timestamp nodes in a card do not cause duplicate processing.
-- Keep behavior resilient to DOM updates.
+1. Open LinkedIn Jobs search results.
+2. Click the ByTheHour extension icon.
+3. Set the maximum age in hours and save.
+4. Results older than that threshold are hidden automatically.
 
-## Non-Goals (Current)
+## Notes and Constraints
 
-- Modifying LinkedIn backend queries.
-- Deep integration with React component tree.
-- Guaranteeing stability based only on hashed CSS class selectors.
-
-## Risks and Constraints
-
-- LinkedIn DOM structure may change over time.
-- Some jobs may have inconsistent timestamp phrasing.
-- Overly broad ancestor heuristics may hide incorrect containers unless validated.
-
-## Development Plan
-
-1. Scaffold MV3 extension files.
-2. Implement timestamp parser and card-finding heuristics in `content.js`.
-3. Add popup input for `maxHours` and save to storage.
-4. Add mutation-based re-filtering and lightweight debouncing.
-5. Validate on multiple result pages and scroll states.
-
-## Validation Checklist
-
-- Confirm only intended job cards are hidden.
-- Confirm behavior for 1h, 6h, 12h, 24h thresholds.
-- Confirm new cards loaded during scrolling are filtered automatically.
-- Confirm refresh/navigation preserves saved threshold.
-
-## Naming
-
+- LinkedIn DOM can change, so heuristics may need tuning over time.
+- This extension filters visually in the rendered page; it does not modify LinkedIn backend queries.
 - Product name: **ByTheHour**
-- Suggested repo name: `by-the-hour`
-- Suggested internal id: `bythehour`
