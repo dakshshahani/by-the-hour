@@ -2,8 +2,14 @@
   const DEFAULT_MAX_HOURS = 12;
   const AGE_PATTERN = /(\d+)\s*(minute|min|mins|hour|hours|hr|hrs|day|days)\s*ago/i;
   const FILTER_ATTR = "data-bythehour-hidden";
+  const HIDDEN_CLASS = "bythehour-hidden";
   const LOG_PREFIX = "[ByTheHour]";
   const MIN_RUN_INTERVAL_MS = 1000;
+  const RESULT_ROOT_SELECTORS = [
+    ".jobs-search-results-list",
+    "ul.scaffold-layout__list-container",
+    ".scaffold-layout__list"
+  ];
   const PRIMARY_CARD_SELECTORS = [
     "li.scaffold-layout__list-item",
     "li.jobs-search-results__list-item",
@@ -23,6 +29,17 @@
   let scheduled = false;
   let isApplyingFilter = false;
   let lastRunAt = 0;
+
+  function ensureHiddenStyle() {
+    if (document.getElementById("bythehour-style")) {
+      return;
+    }
+
+    const style = document.createElement("style");
+    style.id = "bythehour-style";
+    style.textContent = `.${HIDDEN_CLASS} { display: none !important; }`;
+    document.documentElement.appendChild(style);
+  }
 
   function log(message, extra) {
     if (typeof extra === "undefined") {
@@ -75,6 +92,15 @@
     return value === "just now" || /^(posted\s+)?\d+\s*(minute|min|mins|hour|hours|hr|hrs|day|days)\s*ago$/.test(value);
   }
 
+  function getResultRoots() {
+    const roots = [];
+    RESULT_ROOT_SELECTORS.forEach((selector) => {
+      document.querySelectorAll(selector).forEach((node) => roots.push(node));
+    });
+
+    return roots;
+  }
+
   function findLikelyCard(node) {
     for (const selector of CARD_SELECTORS) {
       const hit = node.closest(selector);
@@ -102,36 +128,61 @@
   }
 
   function getTimestampNodes() {
-    const nodes = Array.from(document.querySelectorAll("span, p, div, small, time"));
-    return nodes.filter((node) => isAgeText(node.textContent || ""));
+    const roots = getResultRoots();
+    const scope = roots.length > 0 ? roots : [document];
+    const nodes = [];
+
+    scope.forEach((root) => {
+      root.querySelectorAll("span, p, div, small, time").forEach((node) => nodes.push(node));
+    });
+
+    return nodes.filter((node) => {
+      const text = (node.textContent || "").trim();
+      if (!/\bago\b/i.test(text) && !/just now/i.test(text)) {
+        return false;
+      }
+
+      return parseAgeToHours(text) !== null;
+    });
   }
 
   function unhidePreviouslyFilteredCards() {
     const previouslyHidden = document.querySelectorAll(`[${FILTER_ATTR}='true']`);
     previouslyHidden.forEach((card) => {
-      card.style.display = "";
+      card.classList.remove(HIDDEN_CLASS);
+      card.style.removeProperty("display");
       card.removeAttribute(FILTER_ATTR);
     });
   }
 
   function applyCardVisibility(card, hide) {
     if (hide) {
+      card.classList.add(HIDDEN_CLASS);
       card.style.setProperty("display", "none", "important");
       card.setAttribute(FILTER_ATTR, "true");
       return;
     }
 
     if (card.getAttribute(FILTER_ATTR) === "true") {
+      card.classList.remove(HIDDEN_CLASS);
       card.style.removeProperty("display");
       card.removeAttribute(FILTER_ATTR);
     }
   }
 
   function getPrimaryCards() {
-    for (const selector of PRIMARY_CARD_SELECTORS) {
-      const cards = Array.from(document.querySelectorAll(selector));
-      if (cards.length > 0) {
-        return cards;
+    const roots = getResultRoots();
+    const scope = roots.length > 0 ? roots : [document];
+
+    for (const root of scope) {
+      for (const selector of PRIMARY_CARD_SELECTORS) {
+        const cards = Array.from(root.querySelectorAll(selector)).filter((card) => {
+          return !!card.querySelector("a[href*='/jobs/view/']");
+        });
+
+        if (cards.length > 0) {
+          return cards;
+        }
       }
     }
 
@@ -140,12 +191,11 @@
 
   function parseAgeFromCard(card) {
     const nodes = Array.from(card.querySelectorAll("span, p, div, small, time"));
-    const postedHours = [];
-    const genericHours = [];
+    const hoursFound = [];
 
     for (const node of nodes) {
       const text = (node.textContent || "").trim();
-      if (!isAgeText(text)) {
+      if (!/\bago\b/i.test(text) && !/just now/i.test(text)) {
         continue;
       }
 
@@ -154,19 +204,11 @@
         continue;
       }
 
-      if (/^posted\s+/i.test(text)) {
-        postedHours.push(hours);
-      } else {
-        genericHours.push(hours);
-      }
+      hoursFound.push(hours);
     }
 
-    if (postedHours.length > 0) {
-      return Math.max(...postedHours);
-    }
-
-    if (genericHours.length > 0) {
-      return Math.max(...genericHours);
+    if (hoursFound.length > 0) {
+      return Math.max(...hoursFound);
     }
 
     return null;
@@ -183,9 +225,10 @@
       let hiddenCards = 0;
 
       const primaryCards = getPrimaryCards();
+      const threshold = Number(maxHours);
 
       log("Starting filter run", {
-        maxHours,
+        maxHours: threshold,
         primaryCards: primaryCards.length,
         url: window.location.href
       });
@@ -206,7 +249,7 @@
           matchedTimestamps += 1;
           matchedCards += 1;
 
-          const hide = hours > maxHours;
+          const hide = Number(hours) > threshold;
           applyCardVisibility(card, hide);
           if (hide) {
             hiddenCards += 1;
@@ -251,7 +294,7 @@
             sampledAges.push(hours);
           }
 
-          const hide = hours > maxHours;
+          const hide = Number(hours) > threshold;
           applyCardVisibility(card, hide);
           if (hide) {
             hiddenCards += 1;
@@ -274,7 +317,18 @@
 
   function loadMaxHours() {
     return new Promise((resolve) => {
+      if (!chrome?.runtime?.id) {
+        resolve(DEFAULT_MAX_HOURS);
+        return;
+      }
+
       chrome.storage.sync.get(["maxHours"], (result) => {
+        if (chrome.runtime.lastError) {
+          log("storage.get failed", { error: chrome.runtime.lastError.message });
+          resolve(DEFAULT_MAX_HOURS);
+          return;
+        }
+
         const parsed = Number(result.maxHours);
         if (Number.isFinite(parsed) && parsed > 0) {
           resolve(parsed);
@@ -292,10 +346,14 @@
     }
 
     log("runFilter called");
-    const maxHours = await loadMaxHours();
-    log("Loaded maxHours", { maxHours });
-    filterCards(maxHours);
-    lastRunAt = Date.now();
+    try {
+      const maxHours = await loadMaxHours();
+      log("Loaded maxHours", { maxHours });
+      filterCards(maxHours);
+      lastRunAt = Date.now();
+    } catch (error) {
+      log("runFilter failed", { error: String(error) });
+    }
   }
 
   function scheduleRunFilter() {
@@ -348,6 +406,7 @@
 
   function init() {
     log("Content script initialized", { readyState: document.readyState, url: window.location.href });
+    ensureHiddenStyle();
     startObserver();
     runFilter();
   }

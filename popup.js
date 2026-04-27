@@ -20,6 +20,12 @@
 
   function loadSettings() {
     chrome.storage.sync.get(["maxHours"], (result) => {
+      if (chrome.runtime.lastError) {
+        setStatus("Unable to read saved value. Try reloading extension.");
+        maxHoursInput.value = String(DEFAULT_MAX_HOURS);
+        return;
+      }
+
       const parsed = Number(result.maxHours);
       if (Number.isFinite(parsed) && parsed > 0) {
         maxHoursInput.value = String(Math.floor(parsed));
@@ -38,6 +44,11 @@
     }
 
     chrome.storage.sync.set({ maxHours: value }, () => {
+      if (chrome.runtime.lastError) {
+        setStatus("Save failed. Reload extension and try again.");
+        return;
+      }
+
       setStatus(`Saved: showing jobs from last ${value} hour(s).`);
     });
   }
