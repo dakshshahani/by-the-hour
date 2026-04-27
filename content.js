@@ -449,8 +449,8 @@
         display: inline-flex;
         flex: 0 0 auto;
         align-items: center;
-        gap: 8px;
-        margin-left: 10px;
+        gap: 6px;
+        margin: 0;
         padding: 0;
         border-radius: 0;
         border: 0;
@@ -458,6 +458,8 @@
         max-width: 100%;
         white-space: nowrap;
         overflow: visible;
+        vertical-align: middle;
+        line-height: 1;
       }
 
       #${UI_CONTAINER_ID} .bth-inline-label {
@@ -465,36 +467,39 @@
         color: #4b5b6b;
         font-weight: 600;
         white-space: nowrap;
+        line-height: 1;
       }
 
       #${UI_CONTAINER_ID} .bth-inline-input {
-        width: 64px;
-        min-width: 56px;
-        height: 32px;
+        width: 48px;
+        min-width: 40px;
+        height: 24px;
         border-radius: 8px;
         border: 1px solid #c4ced8;
-        padding: 0 8px;
-        font-size: 14px;
+        padding: 0 4px;
+        font-size: 12px;
         color: #1d2226;
         background: #ffffff;
+        line-height: 1;
       }
 
       #${UI_CONTAINER_ID} .bth-inline-unit {
-        font-size: 12px;
+        font-size: 11px;
         color: #5f6f81;
         font-weight: 600;
         white-space: nowrap;
+        line-height: 1;
       }
 
       #${UI_CONTAINER_ID} .bth-inline-save {
-        height: 32px;
+        height: 24px;
         border: 0;
         border-radius: 16px;
-        padding: 0 12px;
+        padding: 0 8px;
         background: #0a66c2;
         color: #ffffff;
-        font-size: 13px;
-        font-weight: 700;
+        font-size: 12px;
+        font-weight: 600;
         cursor: pointer;
         transition: all 0.4s ease;
       }
@@ -1069,9 +1074,6 @@
     if (rowStyle.display !== "flex" && rowStyle.display !== "inline-flex") {
       rowNode.style.display = "flex";
       rowNode.style.alignItems = "center";
-      rowNode.style.columnGap = "8px";
-      rowNode.style.rowGap = "6px";
-      rowNode.style.flexWrap = "wrap";
     }
   }
 
@@ -1225,9 +1227,6 @@
         if (!containerNode.style.flexWrap) {
           containerNode.style.flexWrap = "wrap";
         }
-        if (!containerNode.style.gap && !containerNode.style.columnGap) {
-          containerNode.style.columnGap = "8px";
-        }
       }
     } else
     if (uiMountStrategy === "toolbar-append") {
@@ -1242,8 +1241,6 @@
       }
       mountTarget.node.style.alignItems = "center";
       mountTarget.node.style.flexWrap = "wrap";
-      mountTarget.node.style.columnGap = "8px";
-      mountTarget.node.style.rowGap = "8px";
       mountTarget.node.style.paddingLeft = "12px";
       mountTarget.node.style.paddingRight = "12px";
       mountTarget.node.style.paddingTop = "8px";
