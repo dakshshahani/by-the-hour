@@ -496,6 +496,11 @@
         font-size: 13px;
         font-weight: 700;
         cursor: pointer;
+        transition: background 0.3s ease;
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-save.bth-saved {
+        background: #057642;
       }
 
       #${UI_CONTAINER_ID} .bth-inline-save:disabled {
@@ -1318,17 +1323,26 @@
     }
 
     ui.saveButton.disabled = true;
-    setUiStatus("Saving...", "neutral");
 
     const result = await saveMaxHours(parsed);
-    ui.saveButton.disabled = false;
 
     if (!result.ok) {
+      ui.saveButton.disabled = false;
       setUiStatus(`Save failed: ${result.error || "Try reloading extension."}`, "error");
       return;
     }
 
-    setUiStatus(`Saved. Showing jobs from last ${parsed} hour(s).`, "success");
+    ui.saveButton.textContent = "Saved";
+    ui.saveButton.classList.add("bth-saved");
+
+    setTimeout(() => {
+      if (ui && ui.saveButton) {
+        ui.saveButton.classList.remove("bth-saved");
+        ui.saveButton.textContent = "Apply";
+        ui.saveButton.disabled = false;
+      }
+    }, 1500);
+
     runFilter();
   }
 
