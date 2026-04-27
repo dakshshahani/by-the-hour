@@ -15,6 +15,7 @@
 
   let observer = null;
   let scheduled = false;
+  let isApplyingFilter = false;
 
   function log(message, extra) {
     if (typeof extra === "undefined") {
@@ -120,6 +121,8 @@
   }
 
   function filterCards(maxHours) {
+    isApplyingFilter = true;
+
     unhidePreviouslyFilteredCards();
 
     const timestampNodes = getTimestampNodes();
@@ -167,6 +170,8 @@
       hiddenCards,
       shownCards: Math.max(matchedCards - hiddenCards, 0)
     });
+
+    isApplyingFilter = false;
   }
 
   function loadMaxHours() {
@@ -210,6 +215,10 @@
     }
 
     observer = new MutationObserver(() => {
+      if (isApplyingFilter) {
+        return;
+      }
+
       scheduleRunFilter();
     });
 
