@@ -140,11 +140,12 @@
 
   function parseAgeFromCard(card) {
     const nodes = Array.from(card.querySelectorAll("span, p, div, small, time"));
-    let bestHours = null;
+    const postedHours = [];
+    const genericHours = [];
 
     for (const node of nodes) {
       const text = (node.textContent || "").trim();
-      if (!/\bago\b/i.test(text)) {
+      if (!isAgeText(text)) {
         continue;
       }
 
@@ -153,12 +154,22 @@
         continue;
       }
 
-      if (bestHours === null || hours < bestHours) {
-        bestHours = hours;
+      if (/^posted\s+/i.test(text)) {
+        postedHours.push(hours);
+      } else {
+        genericHours.push(hours);
       }
     }
 
-    return bestHours;
+    if (postedHours.length > 0) {
+      return Math.max(...postedHours);
+    }
+
+    if (genericHours.length > 0) {
+      return Math.max(...genericHours);
+    }
+
+    return null;
   }
 
   function filterCards(maxHours) {
@@ -180,10 +191,16 @@
       });
 
       if (primaryCards.length > 0) {
+        const sampledAges = [];
+
         primaryCards.forEach((card) => {
           const hours = parseAgeFromCard(card);
           if (hours === null) {
             return;
+          }
+
+          if (sampledAges.length < 10) {
+            sampledAges.push(hours);
           }
 
           matchedTimestamps += 1;
@@ -195,9 +212,11 @@
             hiddenCards += 1;
           }
         });
+
+        log("Primary card age sample", { sampledAges });
       } else {
         const timestampNodes = getTimestampNodes();
-        const seen = new Set();
+        const cardToHours = new Map();
 
         timestampNodes.forEach((node, index) => {
           const text = node.textContent || "";
@@ -209,15 +228,28 @@
           matchedTimestamps += 1;
 
           const card = findLikelyCard(node);
-          if (!card || seen.has(card)) {
+          if (!card) {
             if (!card && index < 8) {
               log("No card container found for timestamp", { text: text.trim(), hours });
             }
             return;
           }
 
-          seen.add(card);
+          const existing = cardToHours.get(card);
+          if (typeof existing === "number") {
+            cardToHours.set(card, Math.max(existing, hours));
+          } else {
+            cardToHours.set(card, hours);
+          }
+        });
+
+        const sampledAges = [];
+        cardToHours.forEach((hours, card) => {
           matchedCards += 1;
+
+          if (sampledAges.length < 10) {
+            sampledAges.push(hours);
+          }
 
           const hide = hours > maxHours;
           applyCardVisibility(card, hide);
@@ -225,6 +257,8 @@
             hiddenCards += 1;
           }
         });
+
+        log("Fallback card age sample", { sampledAges });
       }
 
       log("Filter run complete", {
