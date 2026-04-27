@@ -6,24 +6,35 @@
   const LOG_PREFIX = "[ByTheHour]";
   const MIN_RUN_INTERVAL_MS = 1000;
   const UI_RETRY_INTERVAL_MS = 1200;
-  const UI_RETRY_MAX_ATTEMPTS = 20;
+  const UI_RETRY_MAX_ATTEMPTS = 120;
   const UI_STYLE_ID = "bythehour-inline-style";
   const UI_CONTAINER_ID = "bythehour-inline-control";
+  const TOP_BAR_MAX_Y = 320;
+  const RESULTS_HEADER_MIN_Y = 150;
+  const RESULTS_HEADER_MAX_Y = 420;
+  const RESULTS_HEADER_HINT_PATTERN = /\bresults\b/i;
+  const NON_LOCATION_BUTTON_TEXT_PATTERN = /(promoted|ranked|jobs|results|filters|date posted|applicants|experience|employment)/i;
+  const LOCATION_HINT_PATTERN = /(location|city|state|zip|postal)/i;
   const LOCATION_WRAPPER_SELECTORS = [
     ".jobs-search-box__location-input",
     ".jobs-search-box__location",
     "[class*='jobs-search-box__location']",
     "[data-job-search-box-input='location']"
   ];
+  const SEARCH_FORM_SELECTORS = [
+    ".jobs-search-box__form",
+    "form[action*='/jobs/search']",
+    "form[role='search']",
+    "[class*='jobs-search-box'] form",
+    ".jobs-search-box"
+  ];
   const SEARCH_BOX_FALLBACK_SELECTORS = [
+    ".jobs-search-box__form",
     ".jobs-search-box__inner",
     ".jobs-search-box",
-    ".jobs-search-two-pane__wrapper",
-    ".jobs-search-results-list__header",
+    "[class*='jobs-search-box'] form",
     "form[role='search']",
-    "header [class*='search']",
-    "main",
-    "body"
+    "form[action*='/jobs/search']"
   ];
   const LOCATION_INPUT_SELECTORS = [
     "input[aria-label*='Search by location']",
@@ -34,6 +45,20 @@
     "input[placeholder*='location']",
     "input[id*='jobs-search-box-location-id']",
     "input[aria-label*='location']"
+  ];
+  const RESULTS_COUNT_ROW_SELECTORS = [
+    ".jobs-search-results-list__subtitle",
+    ".jobs-search-results-list__title-heading",
+    "[class*='jobs-search-results-list'] .pb2",
+    "[class*='jobs-search-results-list'] .jobs-search-results-list__text",
+    "main#workspace header > div",
+    "main#workspace header"
+  ];
+  const RESULTS_HEADER_SELECTORS = [
+    "main#workspace header",
+    "main#workspace > div > header",
+    "main header",
+    "header"
   ];
   const RESULT_ROOT_SELECTORS = [
     ".jobs-search-results-list",
@@ -61,6 +86,7 @@
   let lastRunAt = 0;
   let ui = null;
   let uiMountMode = null;
+  let uiMountStrategy = null;
   let hasLoadedUiValue = false;
   let uiRetryTimer = null;
   let uiRetryAttempts = 0;
@@ -421,14 +447,17 @@
     style.textContent = `
       #${UI_CONTAINER_ID} {
         display: inline-flex;
+        flex: 0 0 auto;
         align-items: center;
         gap: 8px;
         margin-left: 10px;
-        padding: 6px 10px;
-        border-radius: 10px;
-        border: 1px solid #d4dbe3;
-        background: linear-gradient(135deg, #ffffff 0%, #f6f8fa 100%);
+        padding: 0;
+        border-radius: 0;
+        border: 0;
+        background: transparent;
         max-width: 100%;
+        white-space: nowrap;
+        overflow: visible;
       }
 
       #${UI_CONTAINER_ID} .bth-inline-label {
@@ -477,10 +506,23 @@
       #${UI_CONTAINER_ID} .bth-inline-status {
         font-size: 12px;
         color: #5f6f81;
-        max-width: 220px;
+        max-width: 180px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      #${UI_CONTAINER_ID}.bth-inline-compact .bth-inline-status {
+        display: none;
+      }
+
+      #${UI_CONTAINER_ID}.bth-inline-compact .bth-inline-label {
+        font-size: 11px;
+      }
+
+      #${UI_CONTAINER_ID}.bth-inline-compact .bth-inline-input {
+        width: 54px;
+        min-width: 54px;
       }
 
       #${UI_CONTAINER_ID} .bth-inline-status[data-tone='success'] {
@@ -519,6 +561,279 @@
     return null;
   }
 
+  function inputLooksLikeLocation(input) {
+    if (!input) {
+      return false;
+    }
+
+    const ariaLabel = input.getAttribute("aria-label") || "";
+    const placeholder = input.getAttribute("placeholder") || "";
+    const id = input.id || "";
+    const name = input.getAttribute("name") || "";
+    const combined = `${ariaLabel} ${placeholder} ${id} ${name}`;
+    return LOCATION_HINT_PATTERN.test(combined);
+  }
+
+  function normalizeNodeText(node) {
+    return (node?.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  function isLikelyLocationButton(node) {
+    if (!node) {
+      return false;
+    }
+
+    const text = normalizeNodeText(node);
+    if (!text || text.length < 2 || text.length > 60) {
+      return false;
+    }
+
+    if (/\d/.test(text)) {
+      return false;
+    }
+
+    if (NON_LOCATION_BUTTON_TEXT_PATTERN.test(text)) {
+      return false;
+    }
+
+    if (!/[a-z]/i.test(text)) {
+      return false;
+    }
+
+    const locationIndicators = [
+      /^(united states|united kingdom|canada|australia|germany|france|india|china|japan|brazil|mexico|singapore|netherlands|ireland|switzerland)$/i,
+      /^(new york|san francisco|los angeles|chicago|boston|seattle|austin|denver|miami|atlanta)$/i,
+      /^[a-z]+,?\s*[a-z]{2,3}$/i
+    ];
+
+    const isExplicitLocation = locationIndicators.some(regex => regex.test(text));
+    const role = node.getAttribute && node.getAttribute("role");
+    const tagName = node.tagName && node.tagName.toLowerCase();
+
+    if (isExplicitLocation && (role === "button" || tagName === "button" || tagName === "a")) {
+      return true;
+    }
+
+    return false;
+  }
+
+  function getResultsHeaderRoot() {
+    const candidates = [];
+
+    for (const selector of RESULTS_HEADER_SELECTORS) {
+      document.querySelectorAll(selector).forEach((node) => {
+        const rect = node.getBoundingClientRect();
+        if (rect.top < RESULTS_HEADER_MIN_Y || rect.top > RESULTS_HEADER_MAX_Y) {
+          return;
+        }
+
+        if (rect.width < 300 || rect.height < 28) {
+          return;
+        }
+
+        const text = normalizeNodeText(node);
+        if (!RESULTS_HEADER_HINT_PATTERN.test(text)) {
+          return;
+        }
+
+        candidates.push(node);
+      });
+
+      if (candidates.length > 0) {
+        break;
+      }
+    }
+
+    if (candidates.length === 0) {
+      const allDivs = document.querySelectorAll("main#workspace > div > div");
+      for (const div of allDivs) {
+        const rect = div.getBoundingClientRect();
+        if (rect.top >= 140 && rect.top <= 420 && rect.width >= 300 && rect.height >= 28) {
+          const text = normalizeNodeText(div);
+          if (RESULTS_HEADER_HINT_PATTERN.test(text)) {
+            return div;
+          }
+        }
+      }
+
+      const mainWorkspace = document.querySelector("main#workspace");
+      if (mainWorkspace) {
+        const children = mainWorkspace.children;
+        for (let i = 0; i < Math.min(children.length, 5); i++) {
+          const child = children[i];
+          const rect = child.getBoundingClientRect();
+          if (rect.top >= 140 && rect.top <= 420 && rect.width >= 300) {
+            const text = normalizeNodeText(child);
+            if (RESULTS_HEADER_HINT_PATTERN.test(text) || /united states/i.test(text)) {
+              return child;
+            }
+          }
+        }
+      }
+    }
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    candidates.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    return candidates[0];
+  }
+
+  function getResultsCountRow() {
+    for (const selector of RESULTS_COUNT_ROW_SELECTORS) {
+      const node = document.querySelector(selector);
+      if (!node) {
+        continue;
+      }
+
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 200 || rect.top < 140 || rect.top > 420) {
+        continue;
+      }
+
+      const text = normalizeNodeText(node);
+      if (!/\bresults?\b/i.test(text) && selector !== "main#workspace header") {
+        continue;
+      }
+
+      return node;
+    }
+
+    const candidates = document.querySelectorAll("div, span, small, header");
+    for (const node of candidates) {
+      const text = normalizeNodeText(node);
+      const rect = node.getBoundingClientRect();
+      if (
+        /^\d+[\d,]*\s+results?\b/i.test(text) &&
+        rect.top > 140 &&
+        rect.top < 420 &&
+        rect.width > 200 &&
+        rect.height < 80 &&
+        node.children.length <= 10
+      ) {
+        return node;
+      }
+    }
+
+    return null;
+  }
+
+  function getLocationNodeInResultsHeader(header) {
+    if (!header) {
+      return null;
+    }
+
+    const buttonCandidates = Array.from(header.querySelectorAll("[role='button'], button, a"));
+    const locationHit = buttonCandidates.find((node) => isLikelyLocationButton(node));
+    if (locationHit) {
+      return locationHit;
+    }
+
+    const textCandidates = Array.from(header.querySelectorAll("div, span"));
+    return textCandidates.find((node) => isLikelyLocationButton(node)) || null;
+  }
+
+  function getResultsHeaderRow(header) {
+    if (!header) {
+      return null;
+    }
+
+    const locationNode = getLocationNodeInResultsHeader(header);
+    if (!locationNode) {
+      return null;
+    }
+
+    return locationNode.closest("div") || locationNode.parentElement;
+  }
+
+  function getSearchFormRoot() {
+    for (const selector of SEARCH_FORM_SELECTORS) {
+      const node = document.querySelector(selector);
+      if (node) {
+        return node;
+      }
+    }
+
+    return null;
+  }
+
+  function getLocationContainerInSearchForm(searchRoot) {
+    if (!searchRoot) {
+      return null;
+    }
+
+    const locationByClass =
+      searchRoot.querySelector(".jobs-search-box__location-input") ||
+      searchRoot.querySelector(".jobs-search-box__location") ||
+      searchRoot.querySelector("[class*='jobs-search-box__location']") ||
+      searchRoot.querySelector("[data-job-search-box-input='location']");
+    if (locationByClass) {
+      return locationByClass;
+    }
+
+    const inputs = Array.from(searchRoot.querySelectorAll("input"));
+    const hinted = inputs.find((input) => inputLooksLikeLocation(input));
+    if (hinted) {
+      return (
+        hinted.closest(".jobs-search-box__location-input") ||
+        hinted.closest(".jobs-search-box__input") ||
+        hinted.parentElement
+      );
+    }
+
+    if (inputs.length >= 2) {
+      const maybeLocation = inputs[1];
+      return (
+        maybeLocation.closest(".jobs-search-box__input") ||
+        maybeLocation.parentElement
+      );
+    }
+
+    return null;
+  }
+
+  function nodeIsLikelyTopSearchBar(node) {
+    if (!node || typeof node.getBoundingClientRect !== "function") {
+      return false;
+    }
+
+    const rect = node.getBoundingClientRect();
+    if (rect.width < 280 || rect.top < -40 || rect.top > TOP_BAR_MAX_Y) {
+      return false;
+    }
+
+    const text = (node.textContent || "").toLowerCase();
+    const looksSearchRelated =
+      node.querySelector("input") &&
+      (/search/.test(text) || /jobs/.test(text) || /location/.test(text));
+
+    return !!looksSearchRelated;
+  }
+
+  function pickBestSearchRoot() {
+    const candidates = [];
+
+    for (const selector of SEARCH_FORM_SELECTORS) {
+      document.querySelectorAll(selector).forEach((node) => {
+        if (nodeIsLikelyTopSearchBar(node)) {
+          candidates.push(node);
+        }
+      });
+
+      if (candidates.length > 0) {
+        break;
+      }
+    }
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    candidates.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    return candidates[0];
+  }
+
   function findLocationWrapper() {
     for (const selector of LOCATION_WRAPPER_SELECTORS) {
       const node = document.querySelector(selector);
@@ -531,9 +846,65 @@
   }
 
   function getLocationMountTarget() {
+    const resultsCountRow = getResultsCountRow();
+    if (resultsCountRow) {
+      return {
+        mode: "append",
+        node: resultsCountRow,
+        containerNode: resultsCountRow,
+        strategy: "results-count-row-append"
+      };
+    }
+
+    const resultsHeader = getResultsHeaderRoot();
+    const resultsLocationNode = getLocationNodeInResultsHeader(resultsHeader);
+    if (resultsLocationNode?.parentElement) {
+      return {
+        mode: "after",
+        node: resultsLocationNode,
+        headerNode: resultsHeader,
+        containerNode: getResultsHeaderRow(resultsHeader),
+        strategy: "results-header-after-location"
+      };
+    }
+
+    if (resultsHeader) {
+      return {
+        mode: "append",
+        node: resultsHeader,
+        headerNode: resultsHeader,
+        containerNode: resultsHeader,
+        strategy: "results-header-append"
+      };
+    }
+
+    const searchRoot = pickBestSearchRoot() || getSearchFormRoot();
+    const locationInSearchRoot = getLocationContainerInSearchForm(searchRoot);
+    if (locationInSearchRoot?.parentElement) {
+      return {
+        mode: "after",
+        node: locationInSearchRoot,
+        strategy: "searchbar-after-location"
+      };
+    }
+
+    if (searchRoot) {
+      return { mode: "append", node: searchRoot, strategy: "searchbar-append" };
+    }
+
+    const toolbar = document.querySelector("main#workspace [role='toolbar'], [role='toolbar']");
+    if (toolbar && toolbar.getBoundingClientRect().top > -20 && toolbar.getBoundingClientRect().top < 320) {
+      return {
+        mode: "append",
+        node: toolbar,
+        containerNode: toolbar,
+        strategy: "toolbar-append"
+      };
+    }
+
     const locationWrapper = findLocationWrapper();
     if (locationWrapper?.parentElement) {
-      return { mode: "after", node: locationWrapper };
+      return { mode: "after", node: locationWrapper, strategy: "wrapper-after" };
     }
 
     const locationInput = findLocationInput();
@@ -546,18 +917,14 @@
         locationInput.parentElement;
 
       if (closestWrapper?.parentElement) {
-        return { mode: "after", node: closestWrapper };
+        return { mode: "after", node: closestWrapper, strategy: "input-after" };
       }
     }
 
     for (const selector of SEARCH_BOX_FALLBACK_SELECTORS) {
       const fallback = document.querySelector(selector);
-      if (fallback) {
-        if (selector === "main" || selector === "body") {
-          return { mode: "prepend", node: fallback };
-        }
-
-        return { mode: "append", node: fallback };
+      if (fallback && nodeIsLikelyTopSearchBar(fallback)) {
+        return { mode: "append", node: fallback, strategy: `fallback:${selector}` };
       }
     }
 
@@ -601,6 +968,76 @@
     return { attached: false, mode: null };
   }
 
+  function isContainerLikelyHidden(node) {
+    if (!node) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(node);
+    if (!style) {
+      return false;
+    }
+
+    return style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0;
+  }
+
+  function adjustUiDensity(container, mountTarget) {
+    if (!container) {
+      return;
+    }
+
+    const host = mountTarget?.containerNode || mountTarget?.node?.parentElement;
+    let compact = false;
+
+    if (host && host.getBoundingClientRect) {
+      const hostRect = host.getBoundingClientRect();
+      if (hostRect.width > 0 && hostRect.width < 760) {
+        compact = true;
+      }
+    }
+
+    if (compact) {
+      container.classList.add("bth-inline-compact");
+    } else {
+      container.classList.remove("bth-inline-compact");
+    }
+  }
+
+  function forceResultsHeaderInlineLayout(target) {
+    const rowNode = target.containerNode;
+    if (!rowNode) {
+      return;
+    }
+
+    const rowStyle = window.getComputedStyle(rowNode);
+    if (rowStyle.display !== "flex" && rowStyle.display !== "inline-flex") {
+      rowNode.style.display = "flex";
+      rowNode.style.alignItems = "center";
+      rowNode.style.columnGap = "8px";
+      rowNode.style.rowGap = "6px";
+      rowNode.style.flexWrap = "wrap";
+    }
+  }
+
+  function getTargetDebugData(target) {
+    if (!target?.node) {
+      return null;
+    }
+
+    const rect = target.node.getBoundingClientRect();
+    return {
+      strategy: target.strategy || "unknown",
+      mode: target.mode,
+      nodeTag: target.node.tagName,
+      nodeRole: target.node.getAttribute ? target.node.getAttribute("role") : null,
+      nodeText: normalizeNodeText(target.node).slice(0, 60),
+      top: Math.round(rect.top),
+      left: Math.round(rect.left),
+      width: Math.round(rect.width),
+      hidden: isContainerLikelyHidden(target.node)
+    };
+  }
+
   function stopUiRetryLoop() {
     if (uiRetryTimer !== null) {
       window.clearTimeout(uiRetryTimer);
@@ -609,8 +1046,11 @@
   }
 
   function scheduleUiRetryLoop() {
-    const hasConnectedContainer = !!document.getElementById(UI_CONTAINER_ID);
-    if (uiRetryTimer !== null || hasConnectedContainer || uiRetryAttempts >= UI_RETRY_MAX_ATTEMPTS) {
+    const connectedContainer = document.getElementById(UI_CONTAINER_ID);
+    const hasVisibleContainer = connectedContainer
+      ? connectedContainer.getBoundingClientRect().width > 40
+      : false;
+    if (uiRetryTimer !== null || hasVisibleContainer || uiRetryAttempts >= UI_RETRY_MAX_ATTEMPTS) {
       return;
     }
 
@@ -660,15 +1100,102 @@
       return;
     }
 
+    const currentStrategy = mountTarget.strategy || "unknown";
+    if (
+      currentStrategy === "results-header-after-location" ||
+      currentStrategy === "results-header-append" ||
+      currentStrategy === "results-count-row-append"
+    ) {
+      forceResultsHeaderInlineLayout(mountTarget);
+    }
+
+    adjustUiDensity(container, mountTarget);
+    const mountedRect = container.getBoundingClientRect();
+    const notVisible = mountedRect.width < 40 || mountedRect.height < 20;
+    const inWrongZone = mountedRect.top > 420 || mountedRect.top < -40;
+    if (notVisible || inWrongZone) {
+      log("Inline UI mounted but not visible in expected area", {
+        rect: {
+          top: Math.round(mountedRect.top),
+          left: Math.round(mountedRect.left),
+          width: Math.round(mountedRect.width),
+          height: Math.round(mountedRect.height)
+        },
+        target: getTargetDebugData(mountTarget)
+      });
+    }
+
     uiMountMode = attachResult.mode;
+    uiMountStrategy = currentStrategy;
+    if (
+      window.__BYTHEHOUR_LAST_MOUNT_MODE__ !== uiMountMode ||
+      window.__BYTHEHOUR_LAST_MOUNT_STRATEGY__ !== uiMountStrategy
+    ) {
+      window.__BYTHEHOUR_LAST_MOUNT_MODE__ = uiMountMode;
+      window.__BYTHEHOUR_LAST_MOUNT_STRATEGY__ = uiMountStrategy;
+      log("Inline UI mounted", { mode: uiMountMode, strategy: uiMountStrategy });
+    }
+
+    if (uiMountStrategy === "results-count-row-append") {
+      container.style.marginLeft = "12px";
+      container.style.marginTop = "0";
+      container.style.width = "";
+      container.style.display = "inline-flex";
+      container.style.verticalAlign = "middle";
+    } else
+    if (uiMountStrategy === "results-header-after-location" || uiMountStrategy === "results-header-append") {
+      container.style.marginLeft = "8px";
+      container.style.marginTop = "0";
+      container.style.width = "";
+      container.style.display = "inline-flex";
+      container.style.verticalAlign = "middle";
+
+      const containerNode = mountTarget.containerNode || mountTarget.node?.parentElement;
+      if (containerNode) {
+        const computedStyle = window.getComputedStyle(containerNode);
+        if (computedStyle.display !== "flex" && computedStyle.display !== "inline-flex") {
+          containerNode.style.display = "flex";
+          containerNode.style.alignItems = "center";
+        }
+        if (!containerNode.style.flexWrap) {
+          containerNode.style.flexWrap = "wrap";
+        }
+        if (!containerNode.style.gap && !containerNode.style.columnGap) {
+          containerNode.style.columnGap = "8px";
+        }
+      }
+    } else
+    if (uiMountStrategy === "toolbar-append") {
+      container.style.marginLeft = "12px";
+      container.style.marginTop = "8px";
+      container.style.width = "fit-content";
+      container.style.display = "inline-flex";
+      container.style.verticalAlign = "";
+      const toolbarStyle = window.getComputedStyle(mountTarget.node);
+      if (toolbarStyle.display !== "flex" && toolbarStyle.display !== "inline-flex") {
+        mountTarget.node.style.display = "flex";
+      }
+      mountTarget.node.style.alignItems = "center";
+      mountTarget.node.style.flexWrap = "wrap";
+      mountTarget.node.style.columnGap = "8px";
+      mountTarget.node.style.rowGap = "8px";
+      mountTarget.node.style.paddingLeft = "12px";
+      mountTarget.node.style.paddingRight = "12px";
+      mountTarget.node.style.paddingTop = "8px";
+      mountTarget.node.style.paddingBottom = "8px";
+    } else
     if (uiMountMode === "append" || uiMountMode === "prepend") {
       container.style.marginLeft = "0";
       container.style.marginTop = "8px";
       container.style.width = "fit-content";
+      container.style.display = "inline-flex";
+      container.style.verticalAlign = "";
     } else {
-      container.style.marginLeft = "10px";
+      container.style.marginLeft = "8px";
       container.style.marginTop = "0";
       container.style.width = "";
+      container.style.display = "inline-flex";
+      container.style.verticalAlign = "";
     }
 
     stopUiRetryLoop();
