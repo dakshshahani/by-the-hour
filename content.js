@@ -509,15 +509,6 @@
       }
 
       #${UI_CONTAINER_ID} .bth-inline-status {
-        font-size: 12px;
-        color: #5f6f81;
-        max-width: 180px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      #${UI_CONTAINER_ID}.bth-inline-compact .bth-inline-status {
         display: none;
       }
 
