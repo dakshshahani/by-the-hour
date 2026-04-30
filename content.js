@@ -3,57 +3,11 @@
   const AGE_PATTERN = /(\d+)\s*(minute|min|mins|hour|hours|hr|hrs|day|days)\s*ago/i;
   const FILTER_ATTR = "data-bythehour-hidden";
   const HIDDEN_CLASS = "bythehour-hidden";
-  const LOG_PREFIX = "[ByTheHour]";
   const MIN_RUN_INTERVAL_MS = 1000;
   const UI_RETRY_INTERVAL_MS = 1200;
   const UI_RETRY_MAX_ATTEMPTS = 120;
   const UI_STYLE_ID = "bythehour-inline-style";
   const UI_CONTAINER_ID = "bythehour-inline-control";
-  const TOP_BAR_MAX_Y = 320;
-  const RESULTS_HEADER_MIN_Y = 150;
-  const RESULTS_HEADER_MAX_Y = 420;
-  const RESULTS_HEADER_HINT_PATTERN = /\bresults\b/i;
-  const NON_LOCATION_BUTTON_TEXT_PATTERN = /(promoted|ranked|jobs|results|filters|date posted|applicants|experience|employment)/i;
-  const LOCATION_HINT_PATTERN = /(location|city|state|zip|postal)/i;
-  const LOCATION_WRAPPER_SELECTORS = [
-    ".jobs-search-box__location-input",
-    ".jobs-search-box__location",
-    "[class*='jobs-search-box__location']",
-    "[data-job-search-box-input='location']"
-  ];
-  const SEARCH_FORM_SELECTORS = [
-    ".jobs-search-box__form",
-    "form[action*='/jobs/search']",
-    "form[role='search']",
-    "[class*='jobs-search-box'] form",
-    ".jobs-search-box"
-  ];
-  const SEARCH_BOX_FALLBACK_SELECTORS = [
-    ".jobs-search-box__form",
-    ".jobs-search-box__inner",
-    ".jobs-search-box",
-    "[class*='jobs-search-box'] form",
-    "form[role='search']",
-    "form[action*='/jobs/search']"
-  ];
-  const LOCATION_INPUT_SELECTORS = [
-    "input[aria-label*='Search by location']",
-    "input[aria-label*='City, state, or zip code']",
-    "input[aria-label*='City']",
-    "input[aria-label*='city']",
-    "input[placeholder*='City']",
-    "input[placeholder*='location']",
-    "input[id*='jobs-search-box-location-id']",
-    "input[aria-label*='location']"
-  ];
-  const RESULTS_COUNT_ROW_SELECTORS = [
-    ".jobs-search-results-list__subtitle",
-    ".jobs-search-results-list__title-heading",
-    "[class*='jobs-search-results-list'] .pb2",
-    "[class*='jobs-search-results-list'] .jobs-search-results-list__text",
-    "main#workspace header > div",
-    "main#workspace header"
-  ];
   const RESULTS_HEADER_SELECTORS = [
     "main#workspace header",
     "main#workspace > div > header",
@@ -91,6 +45,8 @@
   let uiRetryTimer = null;
   let uiRetryAttempts = 0;
 
+  function log() {}
+
   function ensureHiddenStyle() {
     if (document.getElementById("bythehour-style")) {
       return;
@@ -108,16 +64,6 @@
     }
 
     window.__BYTHEHOUR_UI_LOGGED__ = true;
-    log("Inline UI integration enabled");
-  }
-
-  function log(message, extra) {
-    if (typeof extra === "undefined") {
-      console.log(`${LOG_PREFIX} ${message}`);
-      return;
-    }
-
-    console.log(`${LOG_PREFIX} ${message}`, extra);
   }
 
   function parseAgeToHours(text) {
@@ -242,6 +188,7 @@
 
   function getPrimaryCards() {
     const roots = getResultRoots();
+    console.log("BTH: getResultRoots count:", roots.length);
     const scope = roots.length > 0 ? roots : [document];
 
     for (const root of scope) {
@@ -284,39 +231,26 @@
     return null;
   }
 
-  function filterCards(maxHours) {
+function filterCards(maxHours) {
     isApplyingFilter = true;
+    console.log("BTH filterCards START, maxHours:", maxHours);
+
+    let matchedCards = 0;
+    let hiddenCards = 0;
 
     try {
       unhidePreviouslyFilteredCards();
-
-      let matchedTimestamps = 0;
-      let matchedCards = 0;
-      let hiddenCards = 0;
-
       const primaryCards = getPrimaryCards();
+      console.log("BTH: primaryCards count:", primaryCards.length);
       const threshold = Number(maxHours);
 
-      log("Starting filter run", {
-        maxHours: threshold,
-        primaryCards: primaryCards.length,
-        url: window.location.href
-      });
-
       if (primaryCards.length > 0) {
-        const sampledAges = [];
-
         primaryCards.forEach((card) => {
           const hours = parseAgeFromCard(card);
           if (hours === null) {
             return;
           }
 
-          if (sampledAges.length < 10) {
-            sampledAges.push(hours);
-          }
-
-          matchedTimestamps += 1;
           matchedCards += 1;
 
           const hide = Number(hours) > threshold;
@@ -325,26 +259,19 @@
             hiddenCards += 1;
           }
         });
-
-        log("Primary card age sample", { sampledAges });
       } else {
         const timestampNodes = getTimestampNodes();
         const cardToHours = new Map();
 
-        timestampNodes.forEach((node, index) => {
+        timestampNodes.forEach((node) => {
           const text = node.textContent || "";
           const hours = parseAgeToHours(text);
           if (hours === null) {
             return;
           }
 
-          matchedTimestamps += 1;
-
           const card = findLikelyCard(node);
           if (!card) {
-            if (!card && index < 8) {
-              log("No card container found for timestamp", { text: text.trim(), hours });
-            }
             return;
           }
 
@@ -356,13 +283,8 @@
           }
         });
 
-        const sampledAges = [];
         cardToHours.forEach((hours, card) => {
           matchedCards += 1;
-
-          if (sampledAges.length < 10) {
-            sampledAges.push(hours);
-          }
 
           const hide = Number(hours) > threshold;
           applyCardVisibility(card, hide);
@@ -370,16 +292,7 @@
             hiddenCards += 1;
           }
         });
-
-        log("Fallback card age sample", { sampledAges });
       }
-
-      log("Filter run complete", {
-        matchedTimestamps,
-        matchedCards,
-        hiddenCards,
-        shownCards: Math.max(matchedCards - hiddenCards, 0)
-      });
     } finally {
       isApplyingFilter = false;
     }
@@ -394,7 +307,6 @@
 
       chrome.storage.sync.get(["maxHours"], (result) => {
         if (chrome.runtime.lastError) {
-          log("storage.get failed", { error: chrome.runtime.lastError.message });
           resolve(DEFAULT_MAX_HOURS);
           return;
         }
@@ -551,30 +463,6 @@
     document.documentElement.appendChild(style);
   }
 
-  function findLocationInput() {
-    for (const selector of LOCATION_INPUT_SELECTORS) {
-      const input = document.querySelector(selector);
-      if (input) {
-        return input;
-      }
-    }
-
-    return null;
-  }
-
-  function inputLooksLikeLocation(input) {
-    if (!input) {
-      return false;
-    }
-
-    const ariaLabel = input.getAttribute("aria-label") || "";
-    const placeholder = input.getAttribute("placeholder") || "";
-    const id = input.id || "";
-    const name = input.getAttribute("name") || "";
-    const combined = `${ariaLabel} ${placeholder} ${id} ${name}`;
-    return LOCATION_HINT_PATTERN.test(combined);
-  }
-
   function normalizeNodeText(node) {
     return (node?.textContent || "").replace(/\s+/g, " ").trim();
   }
@@ -615,148 +503,7 @@
       return true;
     }
 
-    return false;
-  }
-
-  function getResultsHeaderRoot() {
-    const candidates = [];
-
-    for (const selector of RESULTS_HEADER_SELECTORS) {
-      document.querySelectorAll(selector).forEach((node) => {
-        const rect = node.getBoundingClientRect();
-        if (rect.top < RESULTS_HEADER_MIN_Y || rect.top > RESULTS_HEADER_MAX_Y) {
-          return;
-        }
-
-        if (rect.width < 300 || rect.height < 28) {
-          return;
-        }
-
-        const text = normalizeNodeText(node);
-        if (!RESULTS_HEADER_HINT_PATTERN.test(text)) {
-          return;
-        }
-
-        candidates.push(node);
-      });
-
-      if (candidates.length > 0) {
-        break;
-      }
-    }
-
-    if (candidates.length === 0) {
-      const allDivs = document.querySelectorAll("main#workspace > div > div");
-      for (const div of allDivs) {
-        const rect = div.getBoundingClientRect();
-        if (rect.top >= 140 && rect.top <= 420 && rect.width >= 300 && rect.height >= 28) {
-          const text = normalizeNodeText(div);
-          if (RESULTS_HEADER_HINT_PATTERN.test(text)) {
-            return div;
-          }
-        }
-      }
-
-      const mainWorkspace = document.querySelector("main#workspace");
-      if (mainWorkspace) {
-        const children = mainWorkspace.children;
-        for (let i = 0; i < Math.min(children.length, 5); i++) {
-          const child = children[i];
-          const rect = child.getBoundingClientRect();
-          if (rect.top >= 140 && rect.top <= 420 && rect.width >= 300) {
-            const text = normalizeNodeText(child);
-            if (RESULTS_HEADER_HINT_PATTERN.test(text) || /united states/i.test(text)) {
-              return child;
-            }
-          }
-        }
-      }
-    }
-
-    if (candidates.length === 0) {
-      return null;
-    }
-
-    candidates.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-    return candidates[0];
-  }
-
-  function getResultsCountRow() {
-    for (const selector of RESULTS_COUNT_ROW_SELECTORS) {
-      const node = document.querySelector(selector);
-      if (!node) {
-        continue;
-      }
-
-      const rect = node.getBoundingClientRect();
-      if (rect.width < 200 || rect.top < 140 || rect.top > 420) {
-        continue;
-      }
-
-      const text = normalizeNodeText(node);
-      if (!/\bresults?\b/i.test(text) && selector !== "main#workspace header") {
-        continue;
-      }
-
-      return node;
-    }
-
-    const candidates = document.querySelectorAll("div, span, small, header");
-    for (const node of candidates) {
-      const text = normalizeNodeText(node);
-      const rect = node.getBoundingClientRect();
-      if (
-        /^\d+[\d,]*\s+results?\b/i.test(text) &&
-        rect.top > 140 &&
-        rect.top < 420 &&
-        rect.width > 200 &&
-        rect.height < 80 &&
-        node.children.length <= 10
-      ) {
-        return node;
-      }
-    }
-
-    return null;
-  }
-
-  function getInnerResultsContainer() {
-    const header = document.querySelector('main#workspace header');
-    if (!header) return null;
-
-    const firstChild = header.children[0];
-    if (!firstChild) return null;
-
-    const text = normalizeNodeText(firstChild);
-    if (!/\bresults?\b/i.test(text) && !/united states/i.test(text)) {
-      return null;
-    }
-
-    return firstChild;
-  }
-
-  function getLocationButtonInHeader() {
-    const innerContainer = getInnerResultsContainer();
-    if (!innerContainer) return null;
-
-    const buttons = innerContainer.querySelectorAll('[role="button"], button, a');
-    for (const btn of buttons) {
-      const text = normalizeNodeText(btn);
-      if (/united states/i.test(text)) {
-        return btn;
-      }
-    }
-
-    for (const btn of buttons) {
-      const text = normalizeNodeText(btn);
-      if (text && text.length > 2 && text.length < 40 && !/\d/.test(text)) {
-        if (!NON_LOCATION_BUTTON_TEXT_PATTERN.test(text)) {
-          return btn;
-        }
-      }
-    }
-
-    return null;
+return false;
   }
 
   function getLocationNodeInResultsHeader(header) {
@@ -795,198 +542,47 @@
       }
     }
 
-    return null;
+return null;
   }
 
-  function getLocationContainerInSearchForm(searchRoot) {
-    if (!searchRoot) {
-      return null;
-    }
-
-    const locationByClass =
-      searchRoot.querySelector(".jobs-search-box__location-input") ||
-      searchRoot.querySelector(".jobs-search-box__location") ||
-      searchRoot.querySelector("[class*='jobs-search-box__location']") ||
-      searchRoot.querySelector("[data-job-search-box-input='location']");
-    if (locationByClass) {
-      return locationByClass;
-    }
-
-    const inputs = Array.from(searchRoot.querySelectorAll("input"));
-    const hinted = inputs.find((input) => inputLooksLikeLocation(input));
-    if (hinted) {
-      return (
-        hinted.closest(".jobs-search-box__location-input") ||
-        hinted.closest(".jobs-search-box__input") ||
-        hinted.parentElement
-      );
-    }
-
-    if (inputs.length >= 2) {
-      const maybeLocation = inputs[1];
-      return (
-        maybeLocation.closest(".jobs-search-box__input") ||
-        maybeLocation.parentElement
-      );
-    }
-
-    return null;
+  function getInnerResultsContainer() {
+    const header = document.querySelector('main#workspace header');
+    if (!header) { console.log("BTH: no header found"); return null; }
+    const firstChild = header.children[0];
+    if (!firstChild) { console.log("BTH: no firstChild"); return null; }
+    const text = normalizeNodeText(firstChild);
+    console.log("BTH: container text:", text);
+    if (!/results/i.test(text)) { console.log("BTH: no results in text"); return null; }
+    return firstChild;
   }
 
-  function nodeIsLikelyTopSearchBar(node) {
-    if (!node || typeof node.getBoundingClientRect !== "function") {
-      return false;
+  function getLocationButtonInHeader() {
+    const innerContainer = getInnerResultsContainer();
+    if (!innerContainer) { console.log("BTH: no inner container"); return null; }
+    const buttons = innerContainer.querySelectorAll('[role="button"], button, a');
+    console.log("BTH: found buttons:", buttons.length);
+    for (const btn of buttons) {
+      const text = normalizeNodeText(btn);
+      console.log("BTH: button text:", text);
+      if (!text) continue;
+      if (/how promoted|ranked|posted within|apply/i.test(text)) continue;
+      return btn;
     }
-
-    const rect = node.getBoundingClientRect();
-    if (rect.width < 280 || rect.top < -40 || rect.top > TOP_BAR_MAX_Y) {
-      return false;
-    }
-
-    const text = (node.textContent || "").toLowerCase();
-    const looksSearchRelated =
-      node.querySelector("input") &&
-      (/search/.test(text) || /jobs/.test(text) || /location/.test(text));
-
-    return !!looksSearchRelated;
-  }
-
-  function pickBestSearchRoot() {
-    const candidates = [];
-
-    for (const selector of SEARCH_FORM_SELECTORS) {
-      document.querySelectorAll(selector).forEach((node) => {
-        if (nodeIsLikelyTopSearchBar(node)) {
-          candidates.push(node);
-        }
-      });
-
-      if (candidates.length > 0) {
-        break;
-      }
-    }
-
-    if (candidates.length === 0) {
-      return null;
-    }
-
-    candidates.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-    return candidates[0];
-  }
-
-  function findLocationWrapper() {
-    for (const selector of LOCATION_WRAPPER_SELECTORS) {
-      const node = document.querySelector(selector);
-      if (node) {
-        return node;
-      }
-    }
-
+    if (buttons.length > 0) return buttons[0];
     return null;
   }
 
   function getLocationMountTarget() {
     const innerContainer = getInnerResultsContainer();
     const locationButton = getLocationButtonInHeader();
+    console.log("BTH getLocationMountTarget:", !!innerContainer, !!locationButton);
 
     if (innerContainer && locationButton?.parentElement) {
-      return {
-        mode: "after",
-        node: locationButton,
-        containerNode: innerContainer,
-        strategy: "results-inner-after-location"
-      };
+      return { mode: "after", node: locationButton, containerNode: innerContainer, strategy: "results-inner-after-location" };
     }
 
     if (innerContainer) {
-      return {
-        mode: "append",
-        node: innerContainer,
-        containerNode: innerContainer,
-        strategy: "results-inner-append"
-      };
-    }
-
-    const resultsCountRow = getResultsCountRow();
-    if (resultsCountRow) {
-      return {
-        mode: "append",
-        node: resultsCountRow,
-        containerNode: resultsCountRow,
-        strategy: "results-count-row-append"
-      };
-    }
-
-    const resultsHeader = getResultsHeaderRoot();
-    const resultsLocationNode = getLocationNodeInResultsHeader(resultsHeader);
-    if (resultsLocationNode?.parentElement) {
-      return {
-        mode: "after",
-        node: resultsLocationNode,
-        headerNode: resultsHeader,
-        containerNode: getResultsHeaderRow(resultsHeader),
-        strategy: "results-header-after-location"
-      };
-    }
-
-    if (resultsHeader) {
-      return {
-        mode: "append",
-        node: resultsHeader,
-        headerNode: resultsHeader,
-        containerNode: resultsHeader,
-        strategy: "results-header-append"
-      };
-    }
-
-    const searchRoot = pickBestSearchRoot() || getSearchFormRoot();
-    const locationInSearchRoot = getLocationContainerInSearchForm(searchRoot);
-    if (locationInSearchRoot?.parentElement) {
-      return {
-        mode: "after",
-        node: locationInSearchRoot,
-        strategy: "searchbar-after-location"
-      };
-    }
-
-    if (searchRoot) {
-      return { mode: "append", node: searchRoot, strategy: "searchbar-append" };
-    }
-
-    const toolbar = document.querySelector("main#workspace [role='toolbar'], [role='toolbar']");
-    if (toolbar && toolbar.getBoundingClientRect().top > -20 && toolbar.getBoundingClientRect().top < 320) {
-      return {
-        mode: "append",
-        node: toolbar,
-        containerNode: toolbar,
-        strategy: "toolbar-append"
-      };
-    }
-
-    const locationWrapper = findLocationWrapper();
-    if (locationWrapper?.parentElement) {
-      return { mode: "after", node: locationWrapper, strategy: "wrapper-after" };
-    }
-
-    const locationInput = findLocationInput();
-    if (locationInput) {
-      const closestWrapper =
-        locationInput.closest(".jobs-search-box__location-input") ||
-        locationInput.closest(".jobs-search-box__inner") ||
-        locationInput.closest(".jobs-search-box__input") ||
-        locationInput.closest("[class*='jobs-search-box']") ||
-        locationInput.parentElement;
-
-      if (closestWrapper?.parentElement) {
-        return { mode: "after", node: closestWrapper, strategy: "input-after" };
-      }
-    }
-
-    for (const selector of SEARCH_BOX_FALLBACK_SELECTORS) {
-      const fallback = document.querySelector(selector);
-      if (fallback && nodeIsLikelyTopSearchBar(fallback)) {
-        return { mode: "append", node: fallback, strategy: `fallback:${selector}` };
-      }
+      return { mode: "append", node: innerContainer, containerNode: innerContainer, strategy: "results-inner-append" };
     }
 
     return null;
@@ -1128,14 +724,21 @@
   }
 
   function ensureInlineControl() {
+    console.log("BTH #### ensureInlineControl START");
     ensureInlineUiStyle();
+
+    const existingContainer = document.getElementById(UI_CONTAINER_ID);
+    if (existingContainer && !existingContainer.isConnected) {
+      existingContainer.remove();
+    }
 
     const mountTarget = getLocationMountTarget();
     if (!mountTarget) {
-      log("Inline UI mount target not found yet");
+      console.log("BTH: Inline UI mount target not found yet");
       scheduleUiRetryLoop();
       return;
     }
+    console.log("BTH: Found mount target:", mountTarget.strategy);
 
     let container = document.getElementById(UI_CONTAINER_ID);
     if (!container) {
@@ -1360,14 +963,14 @@
       return;
     }
 
-    log("runFilter called");
+    console.log("BTH: runFilter called");
     try {
       const maxHours = await loadMaxHours();
-      log("Loaded maxHours", { maxHours });
+      console.log("BTH: Loaded maxHours", { maxHours });
       filterCards(maxHours);
       lastRunAt = Date.now();
     } catch (error) {
-      log("runFilter failed", { error: String(error) });
+      console.error("BTH: runFilter failed", error);
     }
   }
 
@@ -1398,7 +1001,9 @@
       }
 
       ensureInlineControl();
-      scheduleRunFilter();
+      if (document.readyState === "complete") {
+        scheduleRunFilter();
+      }
     });
 
     observer.observe(document.body, {
@@ -1434,7 +1039,7 @@
     ensureUiInitDebugLog();
     startObserver();
     await initInPageControls();
-    runFilter();
+    setTimeout(runFilter, 500);
   }
 
   if (document.readyState === "loading") {
