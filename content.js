@@ -491,7 +491,7 @@ function filterCards(maxHours, isEnabled = true) {
       }
 
       #${UI_CONTAINER_ID} .bth-inline-toggle.bth-disabled {
-        background: linear-gradient(90deg, #d94d3a 0%, #0a66c2 100%);
+        background: #d94d3a;
       }
 
       #${UI_CONTAINER_ID} .bth-inline-toggle:disabled {
