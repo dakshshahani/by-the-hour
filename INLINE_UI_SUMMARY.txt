@@ -1,0 +1,221 @@
+================================================================================
+                    INLINE UI IMPLEMENTATION SUMMARY
+                           By-The-Hour Extension
+================================================================================
+
+QUICK ANSWERS:
+
+1. WHERE IS THE INLINE UI CODE LOCATED?
+   - File: /Users/dakshshahani/Documents/Projects/by-the-hour/content.js
+   - This is a Chrome content script that runs on LinkedIn job search pages
+   - Key functions are at lines 352-464, 575-589, 591-626, 726-894, 905-938, 940-949
+
+2. HOW IS IT STRUCTURED (HTML/DOM)?
+   - Dynamic HTML container created by JavaScript
+   - Structure:
+     <div id="bythehour-inline-control">
+       <span>Posted within</span>
+       <input type="number" id="bth-hours" min="1" value="12">
+       <span>hours</span>
+       <button id="bth-save">Apply</button>
+       <span id="bth-status"></span>
+     </div>
+   - Uses inline-flex layout to align components horizontally
+   - Responsive design with compact mode for narrow screens
+   - Positioned next to the location filter button in the results header
+
+3. HOW DOES USER ADJUST HOURS THRESHOLD?
+   - Two methods:
+     a) Click the "Apply" button (click event listener)
+     b) Press Enter key while focused on input (keydown event listener)
+   - Both methods trigger handleSaveFromUi() function
+   - Input validation ensures only positive integers are accepted
+   - On success: button shows "Saved" (green) for 800ms, then reverts
+   - On failure: error message displayed in red
+
+4. WHAT EVENT LISTENERS/HANDLERS ARE ATTACHED?
+   - Input element: keydown listener (Enter key)
+   - Save button: click listener
+   - Global: chrome.storage.onChanged listener (syncs changes from other tabs/popup)
+   - Global: MutationObserver on document.body (re-runs filter when page changes)
+   - All listeners prevent duplicate attachment via dataset.bound check
+
+5. HOW DOES INLINE UI INTERACT WITH chrome.storage?
+   - Uses chrome.storage.sync (cross-device, cross-browser sync)
+   - Load: loadMaxHours() reads stored value, falls back to 12 hours
+   - Save: saveMaxHours(value) writes new threshold
+   - Listen: chrome.storage.onChanged fires when ANY source changes the value
+   - This enables automatic sync between popup and inline UI
+   - Both have error handling and fallback values
+
+================================================================================
+
+KEY IMPLEMENTATION DETAILS:
+
+File Location: /Users/dakshshahani/Documents/Projects/by-the-hour/content.js
+
+1. CSS Injection (Lines 352-464):
+   - Injects <style id="bythehour-inline-style"> into document
+   - All styling scoped to #bythehour-inline-control
+   - LinkedIn blue (#0a66c2) button, green (#057642) on success
+   - 12px label text, 48px input width, responsive at < 980px
+   - Smooth transitions and state changes
+
+2. HTML Creation (Lines 748-754):
+   - Created dynamically in ensureInlineControl() function
+   - innerHTML sets all child elements at once
+   - Uses semantic HTML with aria-label and role="status"
+   - Default value: 12 hours
+
+3. Event Listeners (Lines 877-889):
+   - Attached in ensureInlineControl() function
+   - Click listener on save button calls handleSaveFromUi()
+   - Keydown listener on input field (Enter only) also calls handleSaveFromUi()
+   - Prevention of duplicate listeners via container.dataset.bound check
+
+4. User Interaction Handler (Lines 905-938):
+   - handleSaveFromUi() coordinates entire save flow
+   - Validates input via parseHoursInput()
+   - Disables button during save
+   - Calls saveMaxHours(parsed) to persist to storage
+   - Shows success feedback (800ms "Saved" state)
+   - Immediately calls runFilter() to apply new threshold
+   - Comprehensive error handling with user-friendly messages
+
+5. Storage Integration (Lines 301-341):
+   - loadMaxHours(): Promises-based wrapper around chrome.storage.sync.get
+   - saveMaxHours(): Promises-based wrapper around chrome.storage.sync.set
+   - Both have extension context checks and error handling
+   - Fall back to DEFAULT_MAX_HOURS (12) on any error
+
+6. Storage Listener (Lines 1017-1034):
+   - chrome.storage.onChanged fires when value changes from ANY source
+   - Updates input field value
+   - Syncs status message
+   - Immediately re-runs filter
+   - This creates real-time sync between popup and inline UI
+
+7. UI Mount Target Detection (Lines 575-589):
+   - Tries to find location button in results header
+   - Returns mount target with strategy and mode
+   - Allows flexible positioning as LinkedIn layout changes
+   - Returns object with { mode, node, containerNode, strategy }
+
+8. DOM Attachment (Lines 591-626):
+   - attachInlineControl() handles three attachment modes
+   - "after": Inserted after location button (sibling insertion)
+   - "append": Appended as child of container
+   - "prepend": Inserted as first child
+   - Checks position to avoid re-inserting if already correct
+
+9. Retry Logic (Lines 702-724):
+   - scheduleUiRetryLoop() keeps trying to mount UI
+   - Retries every 1.2 seconds up to 120 times (≈2.4 minutes)
+   - Stops if UI becomes visible or max attempts reached
+   - Syncs value from storage on first successful mount
+
+10. Input Validation (Lines 896-903):
+    - parseHoursInput() ensures valid positive integer
+    - Returns null for invalid input
+    - Floors decimal values
+    - Returns null for values < 1
+
+================================================================================
+
+STORAGE FLOW:
+
+Save Flow:
+  User input → handleSaveFromUi() → parseHoursInput() → saveMaxHours()
+  → chrome.storage.sync.set() → Storage updated
+
+Notification Flow:
+  Storage updated → chrome.storage.onChanged (all tabs)
+  → Update UI value + status + runFilter()
+
+Load Flow:
+  syncUiFromStorage() → loadMaxHours() → chrome.storage.sync.get()
+  → Parse and validate → Update UI input field
+
+================================================================================
+
+CSS STYLING HIGHLIGHTS:
+
+- Container: display: inline-flex, gap: 6px
+- Input: width: 48px, height: 24px, border-radius: 8px
+- Button: height: 24px, border-radius: 16px, padding: 0 8px
+- Success state: .bth-saved class adds green background (#057642)
+- Compact mode: .bth-inline-compact for narrow viewports
+- Mobile responsive: Wraps at 980px, status message takes full width
+- All colors match LinkedIn design language
+
+================================================================================
+
+KEY CONSTANTS:
+
+const DEFAULT_MAX_HOURS = 12;
+const UI_CONTAINER_ID = "bythehour-inline-control";
+const UI_STYLE_ID = "bythehour-inline-style";
+const UI_RETRY_INTERVAL_MS = 1200;
+const UI_RETRY_MAX_ATTEMPTS = 120;
+const MIN_RUN_INTERVAL_MS = 1000;  (Filter throttling)
+
+================================================================================
+
+ERROR HANDLING:
+
+1. Extension context check: if (!chrome?.runtime?.id)
+2. Storage errors: Check chrome.runtime.lastError after get/set
+3. Input validation: Must be number >= 1
+4. Fallback to DEFAULT_MAX_HOURS on any load error
+5. User-friendly error messages in status display
+6. Button re-enabled on save failure
+7. Type validation: Number.isFinite() checks
+
+================================================================================
+
+RESPONSIVE BEHAVIOR:
+
+- Normal mode: Inline display, 6px gap, single line
+- Compact mode: Smaller font (11px), wider input (54px) at < 760px width
+- Mobile responsive: Wraps at 980px, status message full width
+- Auto-detects container width via getBoundingClientRect()
+
+================================================================================
+
+INITIALIZATION FLOW:
+
+1. Content script loads → init()
+2. Ensure hidden CSS style for filtered cards
+3. Start MutationObserver on document.body
+4. Call initInPageControls()
+5. Try to ensure inline control
+6. Sync value from storage
+7. Schedule retry loop if mounting fails
+8. Run filter after 500ms delay
+
+================================================================================
+
+FILE PATHS:
+
+Primary implementation:
+  /Users/dakshshahani/Documents/Projects/by-the-hour/content.js
+
+Related files (for context):
+  /Users/dakshshahani/Documents/Projects/by-the-hour/popup.html (popup UI)
+  /Users/dakshshahani/Documents/Projects/by-the-hour/popup.js (popup logic)
+  /Users/dakshshahani/Documents/Projects/by-the-hour/manifest.json (extension config)
+
+================================================================================
+
+IMPORTANT NOTES:
+
+1. The inline UI is COMPLETELY separate from the popup UI - both use same storage
+2. The chrome.storage.onChanged listener ensures they stay in sync
+3. UI is created dynamically, not in manifest or separate file
+4. All styling is injected via JavaScript, no external CSS files
+5. Retry logic handles cases where page DOM takes time to stabilize
+6. MutationObserver ensures filter runs when LinkedIn loads new job cards
+7. Entry point is the content script running on every LinkedIn page
+8. Uses closure pattern to scope variables and prevent global pollution
+
+================================================================================

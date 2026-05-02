@@ -231,9 +231,16 @@
     return null;
   }
 
-function filterCards(maxHours) {
+function filterCards(maxHours, isEnabled = true) {
     isApplyingFilter = true;
-    console.log("BTH filterCards START, maxHours:", maxHours);
+    console.log("BTH filterCards START, maxHours:", maxHours, "isEnabled:", isEnabled);
+
+    // If filtering is disabled, show all cards
+    if (!isEnabled) {
+      unhidePreviouslyFilteredCards();
+      isApplyingFilter = false;
+      return;
+    }
 
     let matchedCards = 0;
     let hiddenCards = 0;
@@ -340,6 +347,48 @@ function filterCards(maxHours) {
     });
   }
 
+  function loadIsEnabled() {
+    return new Promise((resolve) => {
+      if (!chrome?.runtime?.id) {
+        resolve(true);
+        return;
+      }
+
+      chrome.storage.sync.get(["isEnabled"], (result) => {
+        if (chrome.runtime.lastError) {
+          resolve(true);
+          return;
+        }
+
+        const value = result.isEnabled;
+        if (typeof value === "boolean") {
+          resolve(value);
+          return;
+        }
+
+        resolve(true);
+      });
+    });
+  }
+
+  function saveIsEnabled(value) {
+    return new Promise((resolve) => {
+      if (!chrome?.runtime?.id) {
+        resolve({ ok: false, error: "Extension context unavailable." });
+        return;
+      }
+
+      chrome.storage.sync.set({ isEnabled: value }, () => {
+        if (chrome.runtime.lastError) {
+          resolve({ ok: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+
+        resolve({ ok: true });
+      });
+    });
+  }
+
   function setUiStatus(message, tone) {
     if (!ui?.status) {
       return;
@@ -421,6 +470,31 @@ function filterCards(maxHours) {
       }
 
       #${UI_CONTAINER_ID} .bth-inline-save:disabled {
+        opacity: 0.8;
+        cursor: default;
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-toggle {
+        height: 24px;
+        border: 0;
+        border-radius: 16px;
+        padding: 0 8px;
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.4s ease;
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-toggle.bth-enabled {
+        background: linear-gradient(90deg, #057642 0%, #0a66c2 100%);
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-toggle.bth-disabled {
+        background: linear-gradient(90deg, #d94d3a 0%, #0a66c2 100%);
+      }
+
+      #${UI_CONTAINER_ID} .bth-inline-toggle:disabled {
         opacity: 0.8;
         cursor: default;
       }
@@ -750,6 +824,7 @@ return null;
         <input id="bth-hours" class="bth-inline-input" type="number" min="1" step="1" value="12" aria-label="Maximum age in hours">
         <span class="bth-inline-unit">hours</span>
         <button id="bth-save" class="bth-inline-save" type="button">Apply</button>
+        <button id="bth-toggle" class="bth-inline-toggle bth-enabled" type="button">Enabled</button>
         <span id="bth-status" class="bth-inline-status" role="status" aria-live="polite"></span>
       `;
     }
@@ -870,12 +945,17 @@ return null;
       container,
       input: container.querySelector("#bth-hours"),
       saveButton: container.querySelector("#bth-save"),
+      toggleButton: container.querySelector("#bth-toggle"),
       status: container.querySelector("#bth-status")
     };
 
     if (!container.dataset.bound) {
       ui.saveButton.addEventListener("click", () => {
         handleSaveFromUi();
+      });
+
+      ui.toggleButton.addEventListener("click", () => {
+        handleToggleFromUi();
       });
 
       ui.input.addEventListener("keydown", (event) => {
@@ -900,6 +980,53 @@ return null;
     }
 
     return Math.floor(parsed);
+  }
+
+  function updateToggleButtonUI(isEnabled) {
+    if (!ui?.toggleButton) {
+      return;
+    }
+
+    if (isEnabled) {
+      ui.toggleButton.classList.remove("bth-disabled");
+      ui.toggleButton.classList.add("bth-enabled");
+      ui.toggleButton.textContent = "Enabled";
+      setUiStatus("Filtering is enabled.", "neutral");
+    } else {
+      ui.toggleButton.classList.remove("bth-enabled");
+      ui.toggleButton.classList.add("bth-disabled");
+      ui.toggleButton.textContent = "Disabled";
+      setUiStatus("Filtering is disabled. Showing all results.", "neutral");
+    }
+  }
+
+  async function handleToggleFromUi() {
+    if (!ui) {
+      return;
+    }
+
+    ui.toggleButton.disabled = true;
+
+    const currentIsEnabled = await loadIsEnabled();
+    const newIsEnabled = !currentIsEnabled;
+
+    const result = await saveIsEnabled(newIsEnabled);
+
+    if (!result.ok) {
+      ui.toggleButton.disabled = false;
+      setUiStatus(`Toggle failed: ${result.error || "Try reloading extension."}`, "error");
+      return;
+    }
+
+    updateToggleButtonUI(newIsEnabled);
+
+    setTimeout(() => {
+      if (ui && ui.toggleButton) {
+        ui.toggleButton.disabled = false;
+      }
+    }, 400);
+
+    runFilter();
   }
 
   async function handleSaveFromUi() {
@@ -943,7 +1070,9 @@ return null;
     }
 
     const currentMaxHours = await loadMaxHours();
+    const currentIsEnabled = await loadIsEnabled();
     ui.input.value = String(Math.max(1, Math.floor(currentMaxHours)));
+    updateToggleButtonUI(currentIsEnabled);
     setUiStatus(`Current filter: ${ui.input.value} hour(s).`, "neutral");
     hasLoadedUiValue = true;
   }
@@ -966,8 +1095,9 @@ return null;
     console.log("BTH: runFilter called");
     try {
       const maxHours = await loadMaxHours();
-      console.log("BTH: Loaded maxHours", { maxHours });
-      filterCards(maxHours);
+      const isEnabled = await loadIsEnabled();
+      console.log("BTH: Loaded maxHours and isEnabled", { maxHours, isEnabled });
+      filterCards(maxHours, isEnabled);
       lastRunAt = Date.now();
     } catch (error) {
       console.error("BTH: runFilter failed", error);
@@ -1027,6 +1157,16 @@ return null;
         ui.input.value = String(Math.floor(parsed));
         setUiStatus(`Current filter: ${ui.input.value} hour(s).`, "neutral");
         hasLoadedUiValue = true;
+      }
+
+      runFilter();
+    }
+
+    if (changes.isEnabled) {
+      log("isEnabled changed", { oldValue: changes.isEnabled.oldValue, newValue: changes.isEnabled.newValue });
+      const newIsEnabled = changes.isEnabled.newValue;
+      if (typeof newIsEnabled === "boolean") {
+        updateToggleButtonUI(newIsEnabled);
       }
 
       runFilter();
