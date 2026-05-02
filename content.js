@@ -8,12 +8,6 @@
   const UI_RETRY_MAX_ATTEMPTS = 120;
   const UI_STYLE_ID = "bythehour-inline-style";
   const UI_CONTAINER_ID = "bythehour-inline-control";
-  const RESULTS_HEADER_SELECTORS = [
-    "main#workspace header",
-    "main#workspace > div > header",
-    "main header",
-    "header"
-  ];
   const RESULT_ROOT_SELECTORS = [
     ".jobs-search-results-list",
     "ul.scaffold-layout__list-container",
@@ -45,8 +39,6 @@
   let uiRetryTimer = null;
   let uiRetryAttempts = 0;
 
-  function log() {}
-
   function ensureHiddenStyle() {
     if (document.getElementById("bythehour-style")) {
       return;
@@ -56,14 +48,6 @@
     style.id = "bythehour-style";
     style.textContent = `.${HIDDEN_CLASS} { display: none !important; }`;
     document.documentElement.appendChild(style);
-  }
-
-  function ensureUiInitDebugLog() {
-    if (window.__BYTHEHOUR_UI_LOGGED__) {
-      return;
-    }
-
-    window.__BYTHEHOUR_UI_LOGGED__ = true;
   }
 
   function parseAgeToHours(text) {
@@ -97,15 +81,6 @@
     }
 
     return amount / 60;
-  }
-
-  function isAgeText(text) {
-    const value = (text || "").trim().toLowerCase();
-    if (!value) {
-      return false;
-    }
-
-    return value === "just now" || /^(posted\s+)?\d+\s*(minute|min|mins|hour|hours|hr|hrs|day|days)\s*ago$/.test(value);
   }
 
   function getResultRoots() {
@@ -188,7 +163,6 @@
 
   function getPrimaryCards() {
     const roots = getResultRoots();
-    console.log("BTH: getResultRoots count:", roots.length);
     const scope = roots.length > 0 ? roots : [document];
 
     for (const root of scope) {
@@ -233,8 +207,6 @@
 
 function filterCards(maxHours, isEnabled = true) {
     isApplyingFilter = true;
-    console.log("BTH filterCards START, maxHours:", maxHours, "isEnabled:", isEnabled);
-
     // If filtering is disabled, show all cards
     if (!isEnabled) {
       unhidePreviouslyFilteredCards();
@@ -248,7 +220,6 @@ function filterCards(maxHours, isEnabled = true) {
     try {
       unhidePreviouslyFilteredCards();
       const primaryCards = getPrimaryCards();
-      console.log("BTH: primaryCards count:", primaryCards.length);
       const threshold = Number(maxHours);
 
       if (primaryCards.length > 0) {
@@ -541,103 +512,22 @@ function filterCards(maxHours, isEnabled = true) {
     return (node?.textContent || "").replace(/\s+/g, " ").trim();
   }
 
-  function isLikelyLocationButton(node) {
-    if (!node) {
-      return false;
-    }
-
-    const text = normalizeNodeText(node);
-    if (!text || text.length < 2 || text.length > 60) {
-      return false;
-    }
-
-    if (/\d/.test(text)) {
-      return false;
-    }
-
-    if (NON_LOCATION_BUTTON_TEXT_PATTERN.test(text)) {
-      return false;
-    }
-
-    if (!/[a-z]/i.test(text)) {
-      return false;
-    }
-
-    const locationIndicators = [
-      /^(united states|united kingdom|canada|australia|germany|france|india|china|japan|brazil|mexico|singapore|netherlands|ireland|switzerland)$/i,
-      /^(new york|san francisco|los angeles|chicago|boston|seattle|austin|denver|miami|atlanta)$/i,
-      /^[a-z]+,?\s*[a-z]{2,3}$/i
-    ];
-
-    const isExplicitLocation = locationIndicators.some(regex => regex.test(text));
-    const role = node.getAttribute && node.getAttribute("role");
-    const tagName = node.tagName && node.tagName.toLowerCase();
-
-    if (isExplicitLocation && (role === "button" || tagName === "button" || tagName === "a")) {
-      return true;
-    }
-
-return false;
-  }
-
-  function getLocationNodeInResultsHeader(header) {
-    if (!header) {
-      return null;
-    }
-
-    const buttonCandidates = Array.from(header.querySelectorAll("[role='button'], button, a"));
-    const locationHit = buttonCandidates.find((node) => isLikelyLocationButton(node));
-    if (locationHit) {
-      return locationHit;
-    }
-
-    const textCandidates = Array.from(header.querySelectorAll("div, span"));
-    return textCandidates.find((node) => isLikelyLocationButton(node)) || null;
-  }
-
-  function getResultsHeaderRow(header) {
-    if (!header) {
-      return null;
-    }
-
-    const locationNode = getLocationNodeInResultsHeader(header);
-    if (!locationNode) {
-      return null;
-    }
-
-    return locationNode.closest("div") || locationNode.parentElement;
-  }
-
-  function getSearchFormRoot() {
-    for (const selector of SEARCH_FORM_SELECTORS) {
-      const node = document.querySelector(selector);
-      if (node) {
-        return node;
-      }
-    }
-
-return null;
-  }
-
   function getInnerResultsContainer() {
     const header = document.querySelector('main#workspace header');
-    if (!header) { console.log("BTH: no header found"); return null; }
+    if (!header) { return null; }
     const firstChild = header.children[0];
-    if (!firstChild) { console.log("BTH: no firstChild"); return null; }
+    if (!firstChild) { return null; }
     const text = normalizeNodeText(firstChild);
-    console.log("BTH: container text:", text);
-    if (!/results/i.test(text)) { console.log("BTH: no results in text"); return null; }
+    if (!/results/i.test(text)) { return null; }
     return firstChild;
   }
 
   function getLocationButtonInHeader() {
     const innerContainer = getInnerResultsContainer();
-    if (!innerContainer) { console.log("BTH: no inner container"); return null; }
+    if (!innerContainer) { return null; }
     const buttons = innerContainer.querySelectorAll('[role="button"], button, a');
-    console.log("BTH: found buttons:", buttons.length);
     for (const btn of buttons) {
       const text = normalizeNodeText(btn);
-      console.log("BTH: button text:", text);
       if (!text) continue;
       if (/how promoted|ranked|posted within|apply/i.test(text)) continue;
       return btn;
@@ -649,7 +539,6 @@ return null;
   function getLocationMountTarget() {
     const innerContainer = getInnerResultsContainer();
     const locationButton = getLocationButtonInHeader();
-    console.log("BTH getLocationMountTarget:", !!innerContainer, !!locationButton);
 
     if (innerContainer && locationButton?.parentElement) {
       return { mode: "after", node: locationButton, containerNode: innerContainer, strategy: "results-inner-after-location" };
@@ -747,25 +636,6 @@ return null;
     }
   }
 
-  function getTargetDebugData(target) {
-    if (!target?.node) {
-      return null;
-    }
-
-    const rect = target.node.getBoundingClientRect();
-    return {
-      strategy: target.strategy || "unknown",
-      mode: target.mode,
-      nodeTag: target.node.tagName,
-      nodeRole: target.node.getAttribute ? target.node.getAttribute("role") : null,
-      nodeText: normalizeNodeText(target.node).slice(0, 60),
-      top: Math.round(rect.top),
-      left: Math.round(rect.left),
-      width: Math.round(rect.width),
-      hidden: isContainerLikelyHidden(target.node)
-    };
-  }
-
   function stopUiRetryLoop() {
     if (uiRetryTimer !== null) {
       window.clearTimeout(uiRetryTimer);
@@ -798,7 +668,6 @@ return null;
   }
 
   function ensureInlineControl() {
-    console.log("BTH #### ensureInlineControl START");
     ensureInlineUiStyle();
 
     const existingContainer = document.getElementById(UI_CONTAINER_ID);
@@ -808,11 +677,9 @@ return null;
 
     const mountTarget = getLocationMountTarget();
     if (!mountTarget) {
-      console.log("BTH: Inline UI mount target not found yet");
       scheduleUiRetryLoop();
       return;
     }
-    console.log("BTH: Found mount target:", mountTarget.strategy);
 
     let container = document.getElementById(UI_CONTAINER_ID);
     if (!container) {
@@ -831,7 +698,6 @@ return null;
 
     const attachResult = attachInlineControl(container, mountTarget);
     if (!attachResult.attached) {
-      log("Inline UI attach attempt failed", { mode: mountTarget.mode });
       scheduleUiRetryLoop();
       return;
     }
@@ -848,31 +714,9 @@ return null;
     }
 
     adjustUiDensity(container, mountTarget);
-    const mountedRect = container.getBoundingClientRect();
-    const notVisible = mountedRect.width < 40 || mountedRect.height < 20;
-    const inWrongZone = mountedRect.top > 420 || mountedRect.top < -40;
-    if (notVisible || inWrongZone) {
-      log("Inline UI mounted but not visible in expected area", {
-        rect: {
-          top: Math.round(mountedRect.top),
-          left: Math.round(mountedRect.left),
-          width: Math.round(mountedRect.width),
-          height: Math.round(mountedRect.height)
-        },
-        target: getTargetDebugData(mountTarget)
-      });
-    }
 
     uiMountMode = attachResult.mode;
     uiMountStrategy = currentStrategy;
-    if (
-      window.__BYTHEHOUR_LAST_MOUNT_MODE__ !== uiMountMode ||
-      window.__BYTHEHOUR_LAST_MOUNT_STRATEGY__ !== uiMountStrategy
-    ) {
-      window.__BYTHEHOUR_LAST_MOUNT_MODE__ = uiMountMode;
-      window.__BYTHEHOUR_LAST_MOUNT_STRATEGY__ = uiMountStrategy;
-      log("Inline UI mounted", { mode: uiMountMode, strategy: uiMountStrategy });
-    }
 
     if (uiMountStrategy === "results-count-row-append") {
       container.style.marginLeft = "12px";
@@ -1092,15 +936,12 @@ return null;
       return;
     }
 
-    console.log("BTH: runFilter called");
     try {
       const maxHours = await loadMaxHours();
       const isEnabled = await loadIsEnabled();
-      console.log("BTH: Loaded maxHours and isEnabled", { maxHours, isEnabled });
       filterCards(maxHours, isEnabled);
       lastRunAt = Date.now();
     } catch (error) {
-      console.error("BTH: runFilter failed", error);
     }
   }
 
@@ -1111,7 +952,6 @@ return null;
 
     scheduled = true;
     const wait = Math.max(0, MIN_RUN_INTERVAL_MS - (Date.now() - lastRunAt));
-    log("Scheduling filter run on next animation frame");
     window.setTimeout(() => {
       scheduled = false;
       ensureInlineControl();
@@ -1121,7 +961,6 @@ return null;
 
   function startObserver() {
     if (observer) {
-      log("MutationObserver already running");
       return;
     }
 
@@ -1140,18 +979,14 @@ return null;
       childList: true,
       subtree: true
     });
-
-    log("MutationObserver started");
   }
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    log("storage.onChanged event", { areaName, keys: Object.keys(changes || {}) });
     if (areaName !== "sync") {
       return;
     }
 
     if (changes.maxHours) {
-      log("maxHours changed", { oldValue: changes.maxHours.oldValue, newValue: changes.maxHours.newValue });
       const parsed = Number(changes.maxHours.newValue);
       if (ui?.input && Number.isFinite(parsed) && parsed > 0) {
         ui.input.value = String(Math.floor(parsed));
@@ -1163,7 +998,6 @@ return null;
     }
 
     if (changes.isEnabled) {
-      log("isEnabled changed", { oldValue: changes.isEnabled.oldValue, newValue: changes.isEnabled.newValue });
       const newIsEnabled = changes.isEnabled.newValue;
       if (typeof newIsEnabled === "boolean") {
         updateToggleButtonUI(newIsEnabled);
@@ -1174,9 +1008,7 @@ return null;
   });
 
   async function init() {
-    log("Content script initialized", { readyState: document.readyState, url: window.location.href });
     ensureHiddenStyle();
-    ensureUiInitDebugLog();
     startObserver();
     await initInPageControls();
     setTimeout(runFilter, 500);
