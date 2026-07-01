@@ -26,10 +26,37 @@ ByTheHour is a Chrome extension for LinkedIn Jobs that filters results by postin
 
 ## Install (Local)
 
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked**.
-4. Select this project folder (`by-the-hour`).
+### Prerequisites
+- A Chromium-based browser: Chrome, Edge, Brave, or Opera.
+
+### Steps
+
+1. **Download the code** – clone this repo or download and extract the ZIP.
+2. Open your browser's extension management page:
+   - Chrome: `chrome://extensions`
+   - Edge: `edge://extensions`
+   - Brave: `brave://extensions`
+3. Enable **Developer mode** (toggle in the top-right corner).
+4. Click **Load unpacked**.
+5. Select the project folder (the one containing `manifest.json`).
+
+After loading, the extension is active immediately. No extra build or install step is needed.
+
+### Updating after code changes
+
+1. Go to `chrome://extensions`.
+2. Find **ByTheHour**.
+3. Click the **🔄 Reload** icon on the card.
+4. Refresh any open LinkedIn Jobs tabs.
+
+### Troubleshooting
+
+| Problem | Solution |
+|---|---|
+| "Load unpacked" button is grayed out | Make sure **Developer mode** is on. |
+| Extension doesn't run on LinkedIn | Check that you're on `https://www.linkedin.com/jobs/*`. The extension only activates on LinkedIn Jobs pages. |
+| Changes aren't reflected | Reload the extension (see above), then refresh the LinkedIn tab. |
+| LinkedIn layout changed and nothing is filtered | The DOM selectors in `content.js` may need updating. |
 
 ## Usage
 
